@@ -141,7 +141,7 @@ kubectl get pods -o wide
 Start a temporary DNS-utility pod:
 
 ```bash
-kubectl run -it --rm --restart=Never dnsutils2 --image=tutum/dnsutils --command -- bash
+kubectl run -it --rm --restart=Never dnsutils2 --image=jsha/dnsutils --command -- bash
 ```
 
 Inside the pod, do a lookup using the IP of a pod (replace with your own pod IP):
