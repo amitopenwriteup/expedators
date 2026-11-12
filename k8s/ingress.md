@@ -239,6 +239,11 @@ If `firewalld` is running on the control-plane VM, open port 80 so the worker VM
 sudo firewall-cmd --permanent --add-port=80/tcp
 sudo firewall-cmd --reload
 ```
+```bash
+su -
+echo "127.0.0.1  demo.localdev.me" | sudo tee -a /etc/hosts
+exit
+```
 
 > **Tip:** To avoid `sudo`, forward to a high port instead: `kubectl port-forward --address 0.0.0.0 svc/my-release-nginx-ingress-controller 8080:80`, and use `http://demo.localdev.me:8080/apple` in the tests (open port 8080 in the firewall instead of 80).
 
