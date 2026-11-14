@@ -90,7 +90,7 @@ You will be asked for:
 - **Project name**: `pulumi-azure-rg`
 - **Stack name**: `dev`
 - **Azure location**: e.g., `centralindia` or `eastus`
-
+- **passprhase**: provide any password
 This generates:
 
 ```
