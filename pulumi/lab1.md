@@ -32,6 +32,9 @@ Verify the installs:
 
 ```bash
 python --version
+curl -fsSL https://get.pulumi.com | sh
+echo 'export PATH=$PATH:/home/amit/.pulumi/bin' >> ~/.bashrc
+source ~/.bashrc
 pulumi version
 az --version
 ```
