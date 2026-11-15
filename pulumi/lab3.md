@@ -1,197 +1,105 @@
-# Lab 2: Virtual Network with Pulumi (Python)
+# Lab 3: Virtual Network
 
-**Level:** Beginner to Intermediate  |  **Time:** 25 minutes  |  **Cost:** Free (VNets, subnets and NSGs have no charge)
+**Cost:** Free
 
----
+Builds on Labs 1 and 2. Lab 4 will place a VM in the subnet created here.
 
 ## Objectives
 
-By the end of this lab you will:
-
-1. Create a Virtual Network (VNet) with two subnets
-2. Create a Network Security Group (NSG) with rules
-3. Attach the NSG to a subnet
-4. Use Pulumi config for an IP address instead of hard-coding it
-5. Verify the network with the Azure CLI
+1. Create a VNet with two subnets
+2. Create an NSG (firewall) and attach it to the web subnet
+3. Keep your IP address in Pulumi config, not in code
 
 ## Architecture
 
 ```
-Resource Group (rg-lab-vnet-dev)
+rg-lab-dev
  └── VNet vnet-lab-dev   10.0.0.0/16
-      ├── snet-web  10.0.1.0/24  ── NSG nsg-web (allow 80, 443, SSH from your IP)
+      ├── snet-web  10.0.1.0/24 ── NSG nsg-web-dev (80, 443, SSH from your IP)
       └── snet-app  10.0.2.0/24
 ```
 
-## Prerequisites
+## Learner approach: build it from the docs
 
-- Python 3.9+, Pulumi CLI, Azure CLI, logged in to both
-- Your public IP address (search "what is my IP")
+Plan first, then code. Previewing after every step catches mistakes early.
 
----
+**Docs for this lab:**
+- [NetworkSecurityGroup](https://www.pulumi.com/registry/packages/azure-native/api-docs/network/networksecuritygroup/)
+- [VirtualNetwork](https://www.pulumi.com/registry/packages/azure-native/api-docs/network/virtualnetwork/)
+- [Subnet](https://www.pulumi.com/registry/packages/azure-native/api-docs/network/subnet/)
 
-## Step 1: Create the project
+> **Version check:** the links open the latest Azure Native docs. If your `requirements.txt` pins version 2, use the same page under `azure-native@2.x`, e.g. `https://www.pulumi.com/registry/packages/azure-native@2.x/api-docs/<module>/<resource>/`.
+
+| Step | Do this | Check |
+|------|---------|-------|
+| 1 | On paper, write the VNet range (`10.0.0.0/16`) and two subnet ranges that do not overlap | Both subnets sit inside the VNet range |
+| 2 | Open `VirtualNetwork`; write the minimum and use `AddressSpaceArgs` for the range | Preview shows the VNet |
+| 3 | Open `Subnet`; add `snet-web` and pass `vnet.name` | Preview shows the subnet |
+| 4 | Open `NetworkSecurityGroup`; add one rule using `SecurityRuleArgs` | You can explain priority and direction |
+| 5 | Attach the NSG to the subnet with `NetworkSecurityGroupArgs(id=nsg.id)` | Preview shows the link |
+| 6 | Add `snet-app`; read the `depends_on` note in the code | Subnets deploy without an Azure error |
+| 7 | Move the code into `network.py` and return the subnet for Lab 4 | `pulumi up` works |
+
+Notice: nested settings (like a rule or an address space) are `...Args` classes. The docs Inputs list names the type for each.
+
+## Step 1: Set your IP
+
+Find your public IP (search "what is my IP"), then:
 
 ```bash
-mkdir lab-vnet && cd lab-vnet
-pulumi new azure-python --name lab-vnet --stack dev
-pulumi config set azure-native:location centralindia
-pulumi config set myIp 203.0.113.10/32     # replace with YOUR IP and /32
+pulumi config set myIp 203.0.113.10/32     # replace with YOUR IP, keep /32
 ```
 
-## Step 2: Write the code
+## Step 2: Enable the code
 
-Replace `__main__.py` with:
+In `__main__.py`, uncomment the **Lab 3** block:
 
 ```python
-import pulumi
-from pulumi_azure_native import resources, network
-
-config = pulumi.Config()
-my_ip = config.require("myIp")
-env = pulumi.get_stack()
-
-# 1. Resource Group
-resource_group = resources.ResourceGroup(
-    "rg",
-    resource_group_name=f"rg-lab-vnet-{env}",
-)
-
-# 2. Network Security Group with three inbound rules
-nsg = network.NetworkSecurityGroup(
-    "nsg-web",
-    resource_group_name=resource_group.name,
-    location=resource_group.location,
-    network_security_group_name=f"nsg-web-{env}",
-    security_rules=[
-        network.SecurityRuleArgs(
-            name="allow-http-https",
-            priority=100,
-            direction="Inbound",
-            access="Allow",
-            protocol="Tcp",
-            source_port_range="*",
-            destination_port_ranges=["80", "443"],
-            source_address_prefix="*",
-            destination_address_prefix="*",
-        ),
-        network.SecurityRuleArgs(
-            name="allow-ssh-from-my-ip",
-            priority=110,
-            direction="Inbound",
-            access="Allow",
-            protocol="Tcp",
-            source_port_range="*",
-            destination_port_range="22",
-            source_address_prefix=my_ip,
-            destination_address_prefix="*",
-        ),
-    ],
-)
-
-# 3. Virtual Network
-vnet = network.VirtualNetwork(
-    "vnet",
-    resource_group_name=resource_group.name,
-    location=resource_group.location,
-    virtual_network_name=f"vnet-lab-{env}",
-    address_space=network.AddressSpaceArgs(address_prefixes=["10.0.0.0/16"]),
-    tags={"environment": env, "managed-by": "pulumi"},
-)
-
-# 4. Subnets (web has the NSG attached)
-web_subnet = network.Subnet(
-    "snet-web",
-    resource_group_name=resource_group.name,
-    virtual_network_name=vnet.name,
-    subnet_name="snet-web",
-    address_prefix="10.0.1.0/24",
-    network_security_group=network.NetworkSecurityGroupArgs(id=nsg.id),
-)
-
-# depends_on avoids Azure errors from changing one VNet in parallel
-app_subnet = network.Subnet(
-    "snet-app",
-    resource_group_name=resource_group.name,
-    virtual_network_name=vnet.name,
-    subnet_name="snet-app",
-    address_prefix="10.0.2.0/24",
-    opts=pulumi.ResourceOptions(depends_on=[web_subnet]),
-)
-
-# 5. Outputs
+import network
+vnet, web_subnet, app_subnet = network.create_network(resource_group)
 pulumi.export("vnet_name", vnet.name)
 pulumi.export("web_subnet_id", web_subnet.id)
-pulumi.export("app_subnet_id", app_subnet.id)
 ```
 
-### What each part does
+Key points in `network.py`:
 
-| Resource | Purpose |
-|----------|---------|
-| `VirtualNetwork` | A private network. `10.0.0.0/16` gives about 65,000 addresses |
-| `Subnet` | A slice of the VNet (`/24` = 256 addresses) |
-| `NetworkSecurityGroup` | A firewall: rules are checked from lowest priority number first |
-| `config.require("myIp")` | Keeps your IP out of the code |
+- NSG rules are checked from the lowest priority number first.
+- SSH (port 22) is allowed only from `myIp`, never from `*`.
+- `snet-app` uses `depends_on=[web_subnet]` to avoid Azure errors when changing one VNet in parallel.
+- Subnets must not overlap and must sit inside `10.0.0.0/16`.
+- `create_network` returns `web_subnet`, which Lab 4 will use.
 
 ## Step 3: Preview and deploy
 
 ```bash
-pulumi preview
+pulumi preview      # expect: 4 to create (NSG, VNet, 2 subnets)
 pulumi up
 ```
-
-Expect about 5 resources to be created.
 
 ## Step 4: Verify
 
 ```bash
-# VNet and address space
-az network vnet show -g rg-lab-vnet-dev -n vnet-lab-dev \
-  --query "{name:name, space:addressSpace.addressPrefixes}" -o json
-
-# Subnets
-az network vnet subnet list -g rg-lab-vnet-dev --vnet-name vnet-lab-dev \
+az network vnet subnet list -g rg-lab-dev --vnet-name vnet-lab-dev \
   --query "[].{name:name, prefix:addressPrefix}" -o table
 
-# NSG rules
-az network nsg rule list -g rg-lab-vnet-dev --nsg-name nsg-web-dev -o table
-```
+az network nsg rule list -g rg-lab-dev --nsg-name nsg-web-dev -o table
 
-Confirm that `snet-web` shows the NSG:
-
-```bash
-az network vnet subnet show -g rg-lab-vnet-dev --vnet-name vnet-lab-dev \
+az network vnet subnet show -g rg-lab-dev --vnet-name vnet-lab-dev \
   -n snet-web --query networkSecurityGroup.id -o tsv
 ```
 
----
-
 ## Exercises
 
-1. **Add a third subnet** `snet-db` (`10.0.3.0/24`) with its own NSG that only allows traffic from `10.0.2.0/24`.
-2. **Move the CIDR values into config**: `config.get("vnetCidr") or "10.0.0.0/16"`.
-3. **Change `myIp`** with `pulumi config set myIp <new>/32`, run `pulumi up`, and watch only the SSH rule change.
-4. **Add a deny-all inbound rule** at priority 4000.
-
-## Clean up
-
-```bash
-pulumi destroy
-pulumi stack rm dev
-```
+1. Add a third subnet `snet-db` (`10.0.3.0/24`) with an NSG allowing traffic only from `10.0.2.0/24`.
+2. Move the VNet CIDR into config: `config.get("vnetCidr") or "10.0.0.0/16"`.
+3. Change `myIp` and run `pulumi up`. Only the SSH rule changes.
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---------|-----|
-| `missing required configuration variable 'lab-vnet:myIp'` | Run `pulumi config set myIp <your-ip>/32` |
-| `AnotherOperationInProgress` on subnets | Keep the `depends_on` between subnets |
+| `missing required configuration variable 'pulumi-azure-labs:myIp'` | `pulumi config set myIp <ip>/32` |
 | `InvalidCIDRNotation` | Include the prefix length, such as `/32` |
-| Subnets overlap | Each subnet must be a separate range inside the VNet space |
+| `AnotherOperationInProgress` | Keep the `depends_on` between subnets |
 
-## Key takeaways
-
-- Plan CIDR ranges first: subnets cannot overlap and must sit inside the VNet range.
-- NSG rules are evaluated by priority (lower number wins).
-- Never open SSH to `*`; restrict it to your own IP.
+**Next:** `lab4.md`
