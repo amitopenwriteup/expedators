@@ -1,3 +1,6 @@
+Here's the updated lab with the `myIp` config removed and the SSH rule open to any source (`*`):
+
+````markdown
 # Lab 3: Virtual Network
 
 **Cost:** Free
@@ -8,14 +11,13 @@ Builds on Labs 1 and 2. Lab 4 will place a VM in the subnet created here.
 
 1. Create a VNet with two subnets
 2. Create an NSG (firewall) and attach it to the web subnet
-3. Keep your IP address in Pulumi config, not in code
 
 ## Architecture
 
 ```
 rg-lab-dev
  └── VNet vnet-lab-dev   10.0.0.0/16
-      ├── snet-web  10.0.1.0/24 ── NSG nsg-web-dev (80, 443, SSH from your IP)
+      ├── snet-web  10.0.1.0/24 ── NSG nsg-web-dev (80, 443, SSH from any source)
       └── snet-app  10.0.2.0/24
 ```
 
@@ -42,15 +44,7 @@ Plan first, then code. Previewing after every step catches mistakes early.
 
 Notice: nested settings (like a rule or an address space) are `...Args` classes. The docs Inputs list names the type for each.
 
-## Step 1: Set your IP
-
-Find your public IP (search "what is my IP"), then:
-
-```bash
-pulumi config set myIp 203.0.113.10/32     # replace with YOUR IP, keep /32
-```
-
-## Step 2: Enable the code
+## Step 1: Enable the code
 
 In `__main__.py`, uncomment the **Lab 3** block:
 
@@ -64,19 +58,19 @@ pulumi.export("web_subnet_id", web_subnet.id)
 Key points in `network.py`:
 
 - NSG rules are checked from the lowest priority number first.
-- SSH (port 22) is allowed only from `myIp`, never from `*`.
+- SSH (port 22) uses `source_address_prefix="*"`, so it is open to any source. This is fine for a short-lived lab, but restrict it in real environments.
 - `snet-app` uses `depends_on=[web_subnet]` to avoid Azure errors when changing one VNet in parallel.
 - Subnets must not overlap and must sit inside `10.0.0.0/16`.
 - `create_network` returns `web_subnet`, which Lab 4 will use.
 
-## Step 3: Preview and deploy
+## Step 2: Preview and deploy
 
 ```bash
 pulumi preview      # expect: 4 to create (NSG, VNet, 2 subnets)
 pulumi up
 ```
 
-## Step 4: Verify
+## Step 3: Verify
 
 ```bash
 az network vnet subnet list -g rg-lab-dev --vnet-name vnet-lab-dev \
@@ -92,14 +86,23 @@ az network vnet subnet show -g rg-lab-dev --vnet-name vnet-lab-dev \
 
 1. Add a third subnet `snet-db` (`10.0.3.0/24`) with an NSG allowing traffic only from `10.0.2.0/24`.
 2. Move the VNet CIDR into config: `config.get("vnetCidr") or "10.0.0.0/16"`.
-3. Change `myIp` and run `pulumi up`. Only the SSH rule changes.
+3. Change the SSH rule's `source_address_prefix` from `"*"` to a specific IP (`<your-ip>/32`) and run `pulumi up`. Only the SSH rule changes.
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---------|-----|
-| `missing required configuration variable 'pulumi-azure-labs:myIp'` | `pulumi config set myIp <ip>/32` |
-| `InvalidCIDRNotation` | Include the prefix length, such as `/32` |
 | `AnotherOperationInProgress` | Keep the `depends_on` between subnets |
 
 **Next:** `lab4.md`
+````
+
+Changes I made:
+- Removed the "Set your IP" step and the `myIp` objective, then renumbered the steps.
+- Changed the SSH rule description to "any source" and replaced the "never from `*`" bullet.
+- Dropped the two troubleshooting rows tied to `myIp` and `/32`.
+- Rewrote exercise 3 as an optional "lock it down" exercise, since the original (changing `myIp`) no longer applies.
+
+You'll also need to update `network.py` to match. Remove the `config.require("myIp")` line and set `source_address_prefix="*"` on the SSH rule.
+
+Open SSH on a VM with a public IP gets scanned and brute-forced quickly. That's fine for a throwaway lab, but delete the resources afterward, or use key-based auth only once you reach Lab 4.
