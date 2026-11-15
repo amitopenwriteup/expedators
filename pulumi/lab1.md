@@ -1,328 +1,140 @@
-# Pulumi IaC for Azure: Create a Resource Group (Python)
+# Lab 1: Setup and Resource Group
 
-A beginner-friendly guide, starting from the basics.
+**Time:** 20 min | **Cost:** Free
 
----
+This is the only lab that sets up tools and creates the project. Labs 2 to 4 reuse it.
 
-## 1. What is Pulumi?
+## Series map
 
-Pulumi is an **Infrastructure as Code (IaC)** tool. Instead of clicking in the Azure Portal, you write real Python code that describes the infrastructure you want. Pulumi then creates, updates, or deletes it for you.
+| Lab | Adds | Files |
+|-----|------|-------|
+| 1 | Tools, project, Resource Group | `__main__.py` |
+| 2 | Storage Account | `storage.py` |
+| 3 | VNet, subnets, NSG | `network.py` |
+| 4 | Linux VM | `vm.py` |
+| 5 | Clean up | none |
 
-**Key terms:**
+## What is Pulumi?
+
+Pulumi is Infrastructure as Code: you write Python describing Azure resources, and Pulumi creates, updates or deletes them.
 
 | Term | Meaning |
 |------|---------|
-| **Project** | A folder with your Pulumi code and `Pulumi.yaml` |
-| **Stack** | An instance of your project (e.g., `dev`, `prod`) |
-| **Resource** | A cloud object (e.g., Resource Group, VM) |
-| **State** | Pulumi's record of what it has created |
+| Project | Folder with your code and `Pulumi.yaml` |
+| Stack | One instance of the project (`dev`, `prod`) |
+| Resource | A cloud object (Resource Group, VM) |
+| State | Pulumi's record of what it created |
 
----
+## Prerequisites
 
-## 2. Prerequisites
-
-Install these first:
-
-1. **Python 3.9+**: https://www.python.org/downloads/
-2. **Pulumi CLI**: https://www.pulumi.com/docs/install/
-3. **Azure CLI**: https://learn.microsoft.com/cli/azure/install-azure-cli
-4. An **Azure subscription**
-
-Verify the installs:
+- Python 3.9+, Azure CLI, an Azure subscription
+- Pulumi CLI:
 
 ```bash
-python --version
 curl -fsSL https://get.pulumi.com | sh
-echo 'export PATH=$PATH:/home/amit/.pulumi/bin' >> ~/.bashrc
+echo 'export PATH=$PATH:$HOME/.pulumi/bin' >> ~/.bashrc
 source ~/.bashrc
 pulumi version
-az --version
 ```
 
----
-
-## 3. Log in to Azure
+## Step 1: Log in
 
 ```bash
 az login
+az account show                                   # confirm the subscription
+az account set --subscription "<SUBSCRIPTION_ID>" # only if you need to switch
+
+pulumi login --local        # state kept in a local file (or: pulumi login for Pulumi Cloud)
 ```
 
-Check which subscription is active:
+## Step 2: Create the project
 
 ```bash
-az account show
+mkdir pulumi-azure-labs && cd pulumi-azure-labs
+pulumi new azure-python --name pulumi-azure-labs --stack dev
 ```
 
-To switch subscription:
+When asked for a passphrase, enter any value and remember it. To avoid retyping it:
 
 ```bash
-az account set --subscription "<SUBSCRIPTION_ID>"
+export PULUMI_CONFIG_PASSPHRASE="your-passphrase"
 ```
 
----
+Set the region:
 
-## 4. Log in to Pulumi
-
-Pulumi needs a place to store state.
-
-**Option A: Pulumi Cloud (free for individuals)**
-```bash
-pulumi login
-```
-
-**Option B: Local file (no account needed)**
-```bash
-pulumi login --local
-```
-
----
-
-## 5. Create a New Project
-
-```bash
-mkdir pulumi-azure-rg
-cd pulumi-azure-rg
-pulumi new azure-python
-```
-
-You will be asked for:
-
-- **Project name**: `pulumi-azure-rg`
-- **Stack name**: `dev`
-- **Azure location**: e.g., `centralindia` or `eastus`
-- **passprhase**: provide any password
-This generates:
-
-```
-pulumi-azure-rg/
-├── __main__.py          # Your infrastructure code
-├── Pulumi.yaml          # Project definition
-├── Pulumi.dev.yaml      # Stack configuration
-├── requirements.txt     # Python dependencies
-└── venv/                # Virtual environment
-```
-
----
-
-## 6. Write the Resource Group Code
-
-Open `__main__.py` and replace the contents with:
-
-```python
-import pulumi
-from pulumi_azure_native import resources
-
-# Create an Azure Resource Group
-resource_group = resources.ResourceGroup(
-    "my-resource-group",              # Pulumi logical name
-    resource_group_name="rg-demo-dev",  # Actual name in Azure
-    location="centralindia",
-    tags={
-        "environment": "dev",
-        "managed-by": "pulumi",
-    },
-)
-
-# Export outputs so you can see them after deployment
-pulumi.export("resource_group_name", resource_group.name)
-pulumi.export("resource_group_location", resource_group.location)
-pulumi.export("resource_group_id", resource_group.id)
-```
-
-### Code Explained
-
-| Line | Purpose |
-|------|---------|
-| `import pulumi` | Core Pulumi library |
-| `pulumi_azure_native` | Azure Native provider (maps directly to Azure APIs) |
-| `ResourceGroup(...)` | Declares the resource group |
-| `"my-resource-group"` | Pulumi's internal name (used in state) |
-| `resource_group_name` | The real name that appears in Azure |
-| `pulumi.export` | Prints values after deployment |
-
----
-
-## 7. Install Dependencies
-
-If not already installed by `pulumi new`:
-
-```bash
-# Activate the virtual environment
-# Windows
-venv\Scripts\activate
-
-# macOS / Linux
-source venv/bin/activate
-
-pip install -r requirements.txt
-```
-
-Your `requirements.txt` should contain:
-
-```
-pulumi>=3.0.0,<4.0.0
-pulumi-azure-native>=2.0.0,<3.0.0
-```
-
----
-
-## 8. Preview the Changes
-
-See what Pulumi will do without actually creating anything:
-
-```bash
-pulumi preview
-```
-
-Expected output:
-
-```
-Previewing update (dev):
-     Type                                   Name                    Plan
- +   pulumi:pulumi:Stack                    pulumi-azure-rg-dev     create
- +   └─ azure-native:resources:ResourceGroup  my-resource-group     create
-
-Resources:
-    + 2 to create
-```
-
----
-
-## 9. Deploy
-
-```bash
-pulumi up
-```
-
-Select **yes** when prompted. You'll see:
-
-```
-Outputs:
-    resource_group_id      : "/subscriptions/xxxx/resourceGroups/rg-demo-dev"
-    resource_group_location: "centralindia"
-    resource_group_name    : "rg-demo-dev"
-```
-
----
-
-## 10. Verify in Azure
-
-```bash
-az group show --name rg-demo-dev
-```
-
-Or check the Azure Portal under **Resource groups**.
-
----
-
-## 11. Make a Change (Update)
-
-Edit the tags in `__main__.py`:
-
-```python
-tags={
-    "environment": "dev",
-    "managed-by": "pulumi",
-    "owner": "your-name",
-},
-```
-
-Then run:
-
-```bash
-pulumi up
-```
-
-Pulumi detects the difference and updates only the tags.
-
----
-
-## 12. Clean Up (Destroy)
-
-Delete everything Pulumi created:
-
-```bash
-pulumi destroy
-```
-
-Optionally remove the stack itself:
-
-```bash
-pulumi stack rm dev
-```
-
----
-
-## 13. Using Config Instead of Hard-Coding
-
-Better practice: keep values in stack config.
-
-**Set config:**
 ```bash
 pulumi config set azure-native:location centralindia
-pulumi config set rgName rg-demo-dev
 ```
 
-**Updated `__main__.py`:**
+## Step 3: Add the code
+
+Replace the **entire** contents of `__main__.py` (imports included) with:
 
 ```python
 import pulumi
 from pulumi_azure_native import resources
 
-config = pulumi.Config()
-rg_name = config.require("rgName")
-env = pulumi.get_stack()   # "dev", "prod", etc.
+env = pulumi.get_stack()
 
 resource_group = resources.ResourceGroup(
-    "my-resource-group",
-    resource_group_name=rg_name,
-    tags={
-        "environment": env,
-        "managed-by": "pulumi",
-    },
+    "rg",
+    resource_group_name=f"rg-lab-{env}",
+    tags={"environment": env, "managed-by": "pulumi"},
 )
 
-pulumi.export("resource_group_name", resource_group.name)
+pulumi.export("resource_group", resource_group.name)
+pulumi.export("location", resource_group.location)
 ```
 
-The location is picked up automatically from `azure-native:location`.
+- `"rg"` is Pulumi's internal name (used in state).
+- `resource_group_name` is the real name in Azure (`rg-lab-dev`).
+- The location comes from `azure-native:location`.
 
----
+> Paste the whole block, not just the `ResourceGroup(...)` part. Without the two import lines you get `NameError: name 'resources' is not defined`.
 
-## 14. Common Commands Cheat Sheet
+Later labs add `storage.py`, `network.py` and `vm.py`. You will create each one in its own lab, and in Labs 2 to 4 you add a few lines to this `__main__.py`.
 
-| Command | What it does |
-|---------|--------------|
-| `pulumi new azure-python` | Create a new project |
+## Step 4: Preview and deploy
+
+```bash
+source venv/bin/activate        # Windows: venv\Scripts\activate
+pip install -r requirements.txt # only if pulumi new did not do it
+
+pulumi preview
+pulumi up
+```
+
+Choose **yes**. Expected: 2 resources (stack + resource group).
+
+## Step 5: Verify
+
+```bash
+pulumi stack output
+az group show --name rg-lab-dev -o table
+```
+
+## Exercise: update in place
+
+Add `"owner": "your-name"` to `tags`, then run `pulumi up`. Pulumi updates only the tags.
+
+## Cheat sheet (used throughout the series)
+
+| Command | Purpose |
+|---------|---------|
 | `pulumi preview` | Show planned changes |
 | `pulumi up` | Deploy |
-| `pulumi stack output` | Show exported outputs |
+| `pulumi stack output` | Show exports |
 | `pulumi config` | View config |
-| `pulumi stack ls` | List stacks |
-| `pulumi refresh` | Sync state with real Azure |
-| `pulumi destroy` | Delete all resources |
+| `pulumi refresh` | Sync state with Azure |
+| `pulumi destroy` | Delete all resources (Lab 5) |
 
----
-
-## 15. Troubleshooting
+## Troubleshooting
 
 | Problem | Fix |
 |---------|-----|
-| `az login` not recognized | Install Azure CLI and restart the terminal |
 | Authentication error | Run `az login` again |
-| `ModuleNotFoundError: pulumi_azure_native` | Activate venv and run `pip install -r requirements.txt` |
+| `ModuleNotFoundError: pulumi_azure_native` | Activate venv, `pip install -r requirements.txt` |
 | Wrong subscription | `az account set --subscription <ID>` |
-| Resource group already exists | Import it: `pulumi import azure-native:resources:ResourceGroup my-resource-group /subscriptions/<SUB_ID>/resourceGroups/<NAME>` |
+| Group already exists | `pulumi import azure-native:resources:ResourceGroup rg /subscriptions/<SUB_ID>/resourceGroups/rg-lab-dev` |
 
----
-
-## 16. Next Steps
-
-Once comfortable with resource groups, try adding:
-
-1. **Storage Account**
-2. **Virtual Network**
-3. **App Service / VM**
-4. Multiple stacks (`dev`, `staging`, `prod`)
-
-Would you like me to extend this with a storage account or virtual network example next?
+**Next:** `lab2.md`
