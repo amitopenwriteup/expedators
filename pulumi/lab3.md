@@ -1,6 +1,3 @@
-Here's the updated lab with the `myIp` config removed and the SSH rule open to any source (`*`):
-
-````markdown
 # Lab 3: Virtual Network
 
 **Cost:** Free
@@ -95,14 +92,3 @@ az network vnet subnet show -g rg-lab-dev --vnet-name vnet-lab-dev \
 | `AnotherOperationInProgress` | Keep the `depends_on` between subnets |
 
 **Next:** `lab4.md`
-````
-
-Changes I made:
-- Removed the "Set your IP" step and the `myIp` objective, then renumbered the steps.
-- Changed the SSH rule description to "any source" and replaced the "never from `*`" bullet.
-- Dropped the two troubleshooting rows tied to `myIp` and `/32`.
-- Rewrote exercise 3 as an optional "lock it down" exercise, since the original (changing `myIp`) no longer applies.
-
-You'll also need to update `network.py` to match. Remove the `config.require("myIp")` line and set `source_address_prefix="*"` on the SSH rule.
-
-Open SSH on a VM with a public IP gets scanned and brute-forced quickly. That's fine for a throwaway lab, but delete the resources afterward, or use key-based auth only once you reach Lab 4.
