@@ -1,7 +1,5 @@
 # Lab 1: Setup and Resource Group
 
-**Time:** 20 min | **Cost:** Free
-
 This is the only lab that sets up tools and creates the project. Labs 2 to 4 reuse it.
 
 ## Series map
