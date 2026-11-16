@@ -1,24 +1,31 @@
-# Lab 3 (Full): VNet, Subnets, NSGs and Exercises
+# Lab 3: VNet, Subnets and NSGs (Step by Step)
 
 **Cost:** Free
 
-This is the complete build, including all three exercises:
-
-1. Third subnet `snet-db` (`10.0.3.0/24`) with an NSG that allows traffic only from `10.0.2.0/24`
-2. VNet CIDR read from config (`vnetCidr`)
-3. SSH source configurable, so you can switch from `*` to `<your-ip>/32` and change only one rule
-
-## Architecture
+Builds on Labs 1 and 2. Same project, same stack. We build in four small parts, and after each part we run **preview → up → check**. The three exercises (db subnet with NSG, VNet CIDR from config, SSH source from config) are built into the parts.
 
 ```
 rg-lab-dev
- └── VNet vnet-lab-dev   10.0.0.0/16  (config: vnetCidr)
-      ├── snet-web  10.0.1.0/24 ── NSG nsg-web-dev (80, 443, SSH from sshSource)
-      ├── snet-app  10.0.2.0/24
-      └── snet-db   10.0.3.0/24 ── NSG nsg-db-dev  (allow only from 10.0.2.0/24, deny rest)
+ └── Part A: VNet vnet-lab-dev   10.0.0.0/16  (config: vnetCidr)
+      ├── Part B: snet-web  10.0.1.0/24 ── NSG nsg-web-dev (80, 443, SSH from sshSource)
+      ├── Part C: snet-app  10.0.2.0/24
+      └── Part D: snet-db   10.0.3.0/24 ── NSG nsg-db-dev  (allow only from 10.0.2.0/24, deny rest)
 ```
 
-## Step 1: Config (optional)
+| Part | Adds | Preview shows | Check |
+|------|------|---------------|-------|
+| A | VNet (CIDR from config) | 1 to create | `az network vnet show` |
+| B | Web NSG + `snet-web` | 2 to create | `az network nsg rule list`, subnet NSG id |
+| C | `snet-app` | 1 to create | `az network vnet subnet list` |
+| D | DB NSG + `snet-db` | 2 to create | db NSG rules, subnet NSG id |
+
+Total: 6 resources (VNet, 2 NSGs, 3 subnets).
+
+---
+
+## Part 0: One-time setup
+
+### Optional config
 
 Both values have defaults in code, so nothing is required. To override:
 
@@ -27,9 +34,9 @@ pulumi config set vnetCidr 10.0.0.0/16     # optional, default is 10.0.0.0/16
 pulumi config set sshSource "*"            # optional, default is "*" (any source)
 ```
 
-## Step 2: `network.py`
+### Create `network.py`
 
-Create `network.py` next to `__main__.py`:
+Create `network.py` next to `__main__.py` with only this to start:
 
 ```python
 import pulumi
@@ -39,20 +46,50 @@ import pulumi_azure_native as azure_native
 def create_network(resource_group):
     config = pulumi.Config()
 
+    # ---- Part A goes here ----
+
+    # ---- Part B goes here ----
+
+    # ---- Part C goes here ----
+
+    # ---- Part D goes here ----
+```
+
+### Call it from `__main__.py`
+
+Add this block at the bottom (after the Lab 2 storage call). For now it only calls the function:
+
+```python
+import network
+network.create_network(resource_group)
+```
+
+In Part D you will replace it with the version that unpacks the return values and exports them.
+
+---
+
+## Part A: Virtual Network
+
+**Docs for this part:**
+
+| Code | Pulumi reference |
+|------|------------------|
+| `VirtualNetwork(...)`, `virtual_network_name`, `address_space` | [VirtualNetwork API docs](https://www.pulumi.com/registry/packages/azure-native/api-docs/network/virtualnetwork/) (see `AddressSpaceArgs`) |
+| `pulumi.Config()`, `config.get("vnetCidr")` | [Pulumi configuration](https://www.pulumi.com/docs/iac/concepts/config/) |
+| `resource_group.name` passed as an input | [Inputs & Outputs](https://www.pulumi.com/docs/iac/concepts/inputs-outputs/) |
+
+### A1. Code
+
+Replace `# ---- Part A goes here ----` with:
+
+```python
     # Exercise 2: VNet CIDR from config, with a default
     vnet_cidr = config.get("vnetCidr") or "10.0.0.0/16"
-
-    # Exercise 3: SSH source from config. "*" = any source (lab default).
-    # Set to "<your-ip>/32" later to lock SSH down.
-    ssh_source = config.get("sshSource") or "*"
 
     web_cidr = "10.0.1.0/24"
     app_cidr = "10.0.2.0/24"
     db_cidr = "10.0.3.0/24"
 
-    # ---------------------------------------------------------------
-    # VNet
-    # ---------------------------------------------------------------
     vnet = azure_native.network.VirtualNetwork(
         "vnet",
         virtual_network_name="vnet-lab-dev",
@@ -61,11 +98,54 @@ def create_network(resource_group):
             address_prefixes=[vnet_cidr],
         ),
     )
+```
 
-    # ---------------------------------------------------------------
-    # NSG for the web subnet: HTTP, HTTPS, SSH
+### A2. Preview
+
+```bash
+pulumi preview
+```
+
+Expect: **1 to create** (the VNet).
+
+### A3. Up
+
+```bash
+pulumi up
+```
+
+Choose `yes`.
+
+### A4. Check
+
+```bash
+az network vnet show -g rg-lab-dev -n vnet-lab-dev \
+  --query "{name:name, space:addressSpace.addressPrefixes}" -o table
+```
+
+Expected: `vnet-lab-dev` with `10.0.0.0/16`.
+
+---
+
+## Part B: Web NSG and `snet-web`
+
+**Docs for this part:**
+
+| Code | Pulumi reference |
+|------|------------------|
+| `NetworkSecurityGroup(...)`, `security_rules` | [NetworkSecurityGroup API docs](https://www.pulumi.com/registry/packages/azure-native/api-docs/network/networksecuritygroup/) (see `SecurityRuleArgs`) |
+| `Subnet(...)`, `address_prefix`, `network_security_group` | [Subnet API docs](https://www.pulumi.com/registry/packages/azure-native/api-docs/network/subnet/) |
+| `vnet.name`, `nsg_web.id` passed as inputs | [Inputs & Outputs](https://www.pulumi.com/docs/iac/concepts/inputs-outputs/) |
+
+### B1. Code
+
+Replace `# ---- Part B goes here ----` with:
+
+```python
+    # Exercise 3: SSH source from config. "*" = any source (lab default).
+    ssh_source = config.get("sshSource") or "*"
+
     # Lower priority number = evaluated first.
-    # ---------------------------------------------------------------
     def inbound_allow(name, priority, port, source):
         return azure_native.network.SecurityRuleArgs(
             name=name,
@@ -90,12 +170,114 @@ def create_network(resource_group):
         ],
     )
 
-    # ---------------------------------------------------------------
-    # Exercise 1: NSG for the db subnet
-    # Allow only the app subnet, then explicitly deny everything else.
-    # The explicit deny is needed because Azure's default AllowVnetInBound
-    # rule (priority 65000) would otherwise let any VNet traffic in.
-    # ---------------------------------------------------------------
+    web_subnet = azure_native.network.Subnet(
+        "snet-web",
+        subnet_name="snet-web",
+        resource_group_name=resource_group.name,
+        virtual_network_name=vnet.name,
+        address_prefix=web_cidr,
+        network_security_group=azure_native.network.NetworkSecurityGroupArgs(
+            id=nsg_web.id,
+        ),
+    )
+```
+
+### B2. Preview
+
+```bash
+pulumi preview
+```
+
+Expect: **2 to create** (web NSG, `snet-web`); the VNet is unchanged.
+
+### B3. Up
+
+```bash
+pulumi up
+```
+
+### B4. Check
+
+```bash
+az network nsg rule list -g rg-lab-dev --nsg-name nsg-web-dev -o table
+
+az network vnet subnet show -g rg-lab-dev --vnet-name vnet-lab-dev \
+  -n snet-web --query networkSecurityGroup.id -o tsv
+```
+
+Expected: rules `allow-http` (80), `allow-https` (443), `allow-ssh` (22), and an NSG id for `snet-web`.
+
+---
+
+## Part C: `snet-app`
+
+**Docs for this part:**
+
+| Code | Pulumi reference |
+|------|------------------|
+| `Subnet(...)` | [Subnet API docs](https://www.pulumi.com/registry/packages/azure-native/api-docs/network/subnet/) |
+| `opts=pulumi.ResourceOptions(depends_on=[web_subnet])` | [Resource options: dependsOn](https://www.pulumi.com/docs/iac/concepts/resources/options/dependson/) |
+
+Azure rejects parallel changes to subnets in one VNet (`AnotherOperationInProgress`), so we chain the subnets with `depends_on`: web, then app, then db.
+
+### C1. Code
+
+Replace `# ---- Part C goes here ----` with:
+
+```python
+    app_subnet = azure_native.network.Subnet(
+        "snet-app",
+        subnet_name="snet-app",
+        resource_group_name=resource_group.name,
+        virtual_network_name=vnet.name,
+        address_prefix=app_cidr,
+        opts=pulumi.ResourceOptions(depends_on=[web_subnet]),
+    )
+```
+
+### C2. Preview
+
+```bash
+pulumi preview
+```
+
+Expect: **1 to create** (`snet-app`).
+
+### C3. Up
+
+```bash
+pulumi up
+```
+
+### C4. Check
+
+```bash
+az network vnet subnet list -g rg-lab-dev --vnet-name vnet-lab-dev \
+  --query "[].{name:name, prefix:addressPrefix}" -o table
+```
+
+Expected: `snet-web` (`10.0.1.0/24`) and `snet-app` (`10.0.2.0/24`).
+
+---
+
+## Part D: DB NSG and `snet-db` (Exercise 1)
+
+**Docs for this part:**
+
+| Code | Pulumi reference |
+|------|------------------|
+| `NetworkSecurityGroup(...)`, `SecurityRuleArgs` (`access`, `priority`, `source_address_prefix`) | [NetworkSecurityGroup API docs](https://www.pulumi.com/registry/packages/azure-native/api-docs/network/networksecuritygroup/) |
+| `Subnet(...)` with `network_security_group` | [Subnet API docs](https://www.pulumi.com/registry/packages/azure-native/api-docs/network/subnet/) |
+| `depends_on=[app_subnet]` | [Resource options: dependsOn](https://www.pulumi.com/docs/iac/concepts/resources/options/dependson/) |
+| `pulumi.export(...)` | [Inputs & Outputs](https://www.pulumi.com/docs/iac/concepts/inputs-outputs/) (stack outputs) |
+
+The db NSG allows only the app subnet, then explicitly denies everything else. The explicit deny is needed because Azure's default `AllowVnetInBound` rule (priority 65000) would otherwise let any VNet traffic in.
+
+### D1. Code
+
+Replace `# ---- Part D goes here ----` with:
+
+```python
     nsg_db = azure_native.network.NetworkSecurityGroup(
         "nsg-db",
         network_security_group_name="nsg-db-dev",
@@ -126,31 +308,6 @@ def create_network(resource_group):
         ],
     )
 
-    # ---------------------------------------------------------------
-    # Subnets
-    # Azure rejects parallel changes to subnets in one VNet
-    # (AnotherOperationInProgress), so chain them with depends_on.
-    # ---------------------------------------------------------------
-    web_subnet = azure_native.network.Subnet(
-        "snet-web",
-        subnet_name="snet-web",
-        resource_group_name=resource_group.name,
-        virtual_network_name=vnet.name,
-        address_prefix=web_cidr,
-        network_security_group=azure_native.network.NetworkSecurityGroupArgs(
-            id=nsg_web.id,
-        ),
-    )
-
-    app_subnet = azure_native.network.Subnet(
-        "snet-app",
-        subnet_name="snet-app",
-        resource_group_name=resource_group.name,
-        virtual_network_name=vnet.name,
-        address_prefix=app_cidr,
-        opts=pulumi.ResourceOptions(depends_on=[web_subnet]),
-    )
-
     db_subnet = azure_native.network.Subnet(
         "snet-db",
         subnet_name="snet-db",
@@ -166,9 +323,7 @@ def create_network(resource_group):
     return vnet, web_subnet, app_subnet, db_subnet
 ```
 
-## Step 3: Enable it in `__main__.py`
-
-`create_network` now returns four values, so update the Lab 3 block:
+Now update `__main__.py`. `create_network` returns four values, so replace the two-line block from Part 0 with:
 
 ```python
 import network
@@ -179,36 +334,37 @@ pulumi.export("app_subnet_id", app_subnet.id)
 pulumi.export("db_subnet_id", db_subnet.id)
 ```
 
-## Step 4: Preview and deploy
+### D2. Preview
 
 ```bash
-pulumi preview      # expect: 6 to create (2 NSGs, VNet, 3 subnets)
+pulumi preview
+```
+
+Expect: **2 to create** (db NSG, `snet-db`) plus the new stack outputs.
+
+### D3. Up
+
+```bash
 pulumi up
 ```
 
-## Step 5: Verify
+### D4. Check
 
 ```bash
-# Subnets and ranges
-az network vnet subnet list -g rg-lab-dev --vnet-name vnet-lab-dev \
-  --query "[].{name:name, prefix:addressPrefix}" -o table
-
-# Web NSG rules
-az network nsg rule list -g rg-lab-dev --nsg-name nsg-web-dev -o table
-
-# DB NSG rules
 az network nsg rule list -g rg-lab-dev --nsg-name nsg-db-dev -o table
 
-# NSG attached to each subnet
-az network vnet subnet show -g rg-lab-dev --vnet-name vnet-lab-dev \
-  -n snet-web --query networkSecurityGroup.id -o tsv
 az network vnet subnet show -g rg-lab-dev --vnet-name vnet-lab-dev \
   -n snet-db --query networkSecurityGroup.id -o tsv
+
+az network vnet subnet list -g rg-lab-dev --vnet-name vnet-lab-dev \
+  --query "[].{name:name, prefix:addressPrefix}" -o table
 ```
 
-Expected: three subnets (`10.0.1.0/24`, `10.0.2.0/24`, `10.0.3.0/24`), `allow-from-app` plus `deny-all-inbound` on the db NSG, and an NSG id for `snet-web` and `snet-db`.
+Expected: `allow-from-app` plus `deny-all-inbound` on the db NSG, an NSG id for `snet-db`, and three subnets (`10.0.1.0/24`, `10.0.2.0/24`, `10.0.3.0/24`).
 
-## Step 6: Exercise 3, lock SSH to your IP
+---
+
+## Exercise 3: Lock SSH to your IP
 
 Find your public IP (search "what is my IP"), then:
 
@@ -227,7 +383,7 @@ pulumi config set sshSource "*"
 pulumi up
 ```
 
-## Step 7: Exercise 2, change the VNet CIDR
+## Exercise 2: Change the VNet CIDR
 
 The VNet range comes from `vnetCidr`. The three subnets are fixed in code, so any new range must still contain `10.0.1.0/24`, `10.0.2.0/24` and `10.0.3.0/24`.
 
@@ -242,6 +398,10 @@ An invalid range (for example `192.168.0.0/16`) makes Azure reject the subnets. 
 pulumi config rm vnetCidr
 ```
 
+> **Version check:** the registry links open the latest Azure Native docs. If your `requirements.txt` pins version 2, use the same pages under `azure-native@2.x`, e.g. `https://www.pulumi.com/registry/packages/azure-native@2.x/api-docs/network/subnet/`.
+
+---
+
 ## Troubleshooting
 
 | Problem | Fix |
@@ -249,7 +409,8 @@ pulumi config rm vnetCidr
 | `AnotherOperationInProgress` | Keep the `depends_on` chain: web, then app, then db |
 | `InvalidCIDRNotation` | Include the prefix length, such as `/32` |
 | `NetcfgSubnetRangeOutsideVnet` | The subnet is outside `vnetCidr`; widen the VNet range |
-| `ValueError: too many values to unpack` | Update `__main__.py` to unpack four values |
+| `ValueError: too many values to unpack` | Update `__main__.py` to unpack four values (Part D) |
+| `NameError: name 'vnet' is not defined` | Part A code is missing, or parts were pasted out of order |
 | App cannot reach db | Check `allow-from-app` source is `10.0.2.0/24` and the VM is in `snet-app` |
 
 ## Cleanup
@@ -260,4 +421,4 @@ This lab is free, but Lab 4 adds cost. When finished with all labs:
 pulumi destroy
 ```
 
-**Next:** `lab4.md` (Lab 4 will place a VM in `web_subnet`; the return value now has four items, so adjust any code that unpacks it.)
+**Next:** `lab4.md` (Lab 4 will place a VM in `web_subnet`; the return value has four items, so adjust any code that unpacks it.)
