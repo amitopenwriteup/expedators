@@ -75,7 +75,14 @@ storage.create_storage(resource_group)
 
 ## Part A: Storage Account
 
-**Docs:** [StorageAccount](https://www.pulumi.com/registry/packages/azure-native/api-docs/storage/storageaccount/)
+**Docs for this part:**
+
+| Code | Pulumi reference |
+|------|------------------|
+| `StorageAccount(...)`, `account_name`, `location`, `sku`, `kind`, `allow_blob_public_access`, `enable_https_traffic_only`, `minimum_tls_version`, `tags` | [StorageAccount API docs](https://www.pulumi.com/registry/packages/azure-native/api-docs/storage/storageaccount/) (open the Python tab; see `SkuArgs` and the `SkuName`, `Kind`, `MinimumTlsVersion` enums) |
+| `rg.name`, `rg.location` passed as inputs | [Inputs & Outputs](https://www.pulumi.com/docs/iac/concepts/inputs-outputs/) |
+| `account.primary_endpoints.apply(lambda e: e.blob)` | [Apply](https://www.pulumi.com/docs/iac/concepts/inputs-outputs/apply/) |
+| `pulumi.export(...)` | Stack outputs must be created at the top level of the program, not inside an `apply` (see the Apply page) |
 
 ### A1. Code
 
@@ -133,7 +140,12 @@ Expected: SKU `Standard_LRS`, TLS `TLS1_2`, public blob access `False`.
 
 ## Part B: Container `data`
 
-**Docs:** [BlobContainer](https://www.pulumi.com/registry/packages/azure-native/api-docs/storage/blobcontainer/)
+**Docs for this part:**
+
+| Code | Pulumi reference |
+|------|------------------|
+| `BlobContainer(...)`, `account_name`, `container_name`, `public_access` | [BlobContainer API docs](https://www.pulumi.com/registry/packages/azure-native/api-docs/storage/blobcontainer/) (see the `PublicAccess` enum for `NONE`) |
+| `account_name=account.name` (output of one resource used as input to the next) | [Inputs & Outputs](https://www.pulumi.com/docs/iac/concepts/inputs-outputs/) and [All](https://www.pulumi.com/docs/iac/concepts/inputs-outputs/all/) |
 
 ### B1. Code
 
@@ -184,7 +196,14 @@ Expected: `null` (no public access).
 
 ## Part C: Blob `hello.txt`
 
-**Docs:** [Blob](https://www.pulumi.com/registry/packages/azure-native/api-docs/storage/blob/)
+**Docs for this part:**
+
+| Code | Pulumi reference |
+|------|------------------|
+| `Blob(...)`, `blob_name`, `type`, `source` | [Blob API docs](https://www.pulumi.com/registry/packages/azure-native/api-docs/storage/blob/) (see the `BlobType` enum for `BLOCK`; `source` takes an asset such as `pulumi.StringAsset`) |
+| `container_name=container.name` | [Inputs & Outputs](https://www.pulumi.com/docs/iac/concepts/inputs-outputs/) |
+
+> **Version check:** if your `requirements.txt` pins Azure Native v2, use the same pages under `azure-native@2.x`, e.g. `https://www.pulumi.com/registry/packages/azure-native@2.x/api-docs/storage/blob/`.
 
 ### C1. Code
 
