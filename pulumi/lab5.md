@@ -211,18 +211,7 @@ pulumi preview
 
 Expect: **1 to create** (the ASG).
 
-### C5. Up
 
-```bash
-pulumi up
-```
-
-### C6. Check
-
-```bash
-az network asg show -g rg-lab-dev -n asg-app-dev --query "{name:name, location:location}" -o table
-pulumi stack output
-```
 
 Expected: the ASG exists in `rg-lab-dev`, and `network_rg` shows `rg-lab-dev`.
 
