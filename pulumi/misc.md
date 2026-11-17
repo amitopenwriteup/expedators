@@ -158,56 +158,7 @@ Expected: an IP in `10.0.1.0/24` and the `snet-web` subnet ID.
 
 ---
 
-## Part C: Config, secrets and missing outputs
 
-### C1. Reference name from config
-
-Replace the `net = ...` line with:
-
-```python
-config = pulumi.Config()
-net = pulumi.StackReference(
-    config.get("networkStack") or "organization/pulumi-azure-labs/dev"
-)
-```
-
-Now other environments can point elsewhere with `pulumi config set networkStack organization/pulumi-azure-labs/prod`.
-
-### C2. Secrets stay secret
-
-Add:
-
-```python
-pulumi.export("seen_storage_key", net.get_output("primary_key"))
-```
-
-```bash
-pulumi up
-pulumi stack output seen_storage_key                    # [secret]
-pulumi stack output seen_storage_key --show-secrets     # real key
-```
-
-Secrets read through a reference keep their secret flag in the new stack. This needs the same passphrase in both projects.
-
-### C3. A missing output (on purpose)
-
-Temporarily add `net.require_output("does_not_exist")` as an export and run `pulumi preview`. It fails with a missing-output error. Switch it to `net.get_output("does_not_exist")` and the program works but the value is empty. Remove the line afterwards.
-
-### C4. Check the change flows
-
-In `pulumi-azure-labs`, add `pulumi.export("note", "hello from network")` and run `pulumi up`. Back in the app folder:
-
-```bash
-pulumi stack output note    # not there: reading is only refreshed when the app program runs
-```
-
-Add `pulumi.export("seen_note", net.get_output("note"))`, run `pulumi up`, and it appears. A reference is read **when the consuming stack runs**, not pushed automatically.
-
-## Exercises
-
-1. Export the NIC's `id` and use `pulumi stack output` to read it from a script.
-2. Create a second stack `pulumi stack init test` in the app project, and set `networkStack` to point at `dev`.
-3. Run `pulumi stack graph` hmm skip. Instead run `pulumi stack export | jq '.deployment.resources[].type'` in the app project and note there is a `pulumi:pulumi:StackReference` resource.
 
 ## Clean up
 
