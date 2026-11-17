@@ -407,10 +407,10 @@ pulumi state unprotect --all
 
 **Docs:** [retainOnDelete](https://www.pulumi.com/docs/iac/concepts/resources/options/retainondelete/), [dependsOn](https://www.pulumi.com/docs/iac/concepts/resources/options/dependson/)
 
-### E1. Code
+### E1. Code :network.py add it
 
 ```python
-scratch = az_network.NetworkSecurityGroup(
+nsg_scratch = azure_native.network.NetworkSecurityGroup(
     "nsg-scratch",
     network_security_group_name="nsg-scratch-dev",
     resource_group_name=resource_group.name,
@@ -451,65 +451,7 @@ az network nsg delete -g rg-lab-dev -n nsg-scratch-dev
 
 ---
 
-## Part F: `aliases`
 
-**Docs:** [aliases](https://www.pulumi.com/docs/iac/concepts/resources/options/aliases/)
-
-Renaming the Pulumi name of a resource changes its URN, which Pulumi treats as delete + create. With a fixed Azure name that is dangerous, because the create and the delete hit the **same** Azure resource.
-
-### F1. Create a resource
-
-```python
-alias_demo = az_network.NetworkSecurityGroup(
-    "nsg-alias",
-    network_security_group_name="nsg-alias-dev",
-    resource_group_name=resource_group.name,
-    location=resource_group.location,
-)
-```
-
-```bash
-pulumi up
-```
-
-### F2. Rename without an alias: PREVIEW ONLY
-
-Change `"nsg-alias"` to `"nsg-alias-v2"` and run:
-
-```bash
-pulumi preview
-```
-
-Expect: a **replace** (delete and create). **Do not run `pulumi up`.**
-
-### F3. Rename with an alias
-
-```python
-alias_demo = az_network.NetworkSecurityGroup(
-    "nsg-alias-v2",
-    network_security_group_name="nsg-alias-dev",
-    resource_group_name=resource_group.name,
-    location=resource_group.location,
-    opts=pulumi.ResourceOptions(aliases=[pulumi.Alias(name="nsg-alias")]),
-)
-```
-
-```bash
-pulumi preview      # no replace
-pulumi up
-pulumi stack --show-urns | grep nsg-alias
-```
-
-Expected: the URN now ends in `nsg-alias-v2`, and `az network nsg show -g rg-lab-dev -n nsg-alias-dev` still works, so nothing was recreated. Keep the alias in code for one deploy cycle, then you can remove it.
-
----
-
-## Exercises
-
-1. Put `protect=True` on the resource group, then try `pulumi destroy`. Unprotect and retry later.
-2. Use `ignore_changes=["tags.owner"]` to ignore only one tag.
-3. Move `nsg_alias` into a component or another parent using `Alias(parent=...)`.
-4. Run `pulumi refresh --preview-only` hmm to see drift without writing state; compare with `--diff`.
 
 ## Clean up
 
