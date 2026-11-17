@@ -123,18 +123,7 @@ az storage blob list --account-name $SA --container-name $CONTAINER \
 
 The `dev.json` timestamp should be fresh, and the version count should go up.
 
-## Exercises
 
-1. Export again from the new backend (`pulumi stack export --file dev-state-remote.json`) and compare it with `dev-state.json` using `diff`. Only the tag change should differ.
-2. Create a 30-minute SAS token and log in with it instead of the key:
-   ```bash
-   az storage container generate-sas -n $CONTAINER --account-name $SA \
-     --account-key "$AZURE_STORAGE_KEY" --permissions rwdl \
-     --expiry $(date -u -d '+30 minutes' +%Y-%m-%dT%H:%MZ) -o tsv
-   ```
-   Then `unset AZURE_STORAGE_KEY`, `export AZURE_STORAGE_SAS_TOKEN="<token>"`, and run `pulumi stack ls`.
-
-Don't disable shared key access on this account while using this lab. It would break the key-based login.
 
 ## Step 7: Clean up
 
