@@ -16,7 +16,6 @@ Pulumi deletes the VM, NIC and public IP because they are no longer in the code.
 
 ```bash
 pulumi destroy        # answer yes
-pulumi stack rm dev   # optional: deletes the stack and its state
 ```
 
 `pulumi destroy` deletes resources in the right dependency order, ending with the resource group.
