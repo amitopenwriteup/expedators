@@ -1,4 +1,4 @@
-# Lab 9: Remote State in Azure Blob Storage
+# Lab : Remote State in Azure Blob Storage
 
 **Cost:** A few cents a month (one Standard LRS storage account holding small state files).
 
