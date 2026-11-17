@@ -21,11 +21,6 @@ pulumi stack rm dev   # optional: deletes the stack and its state
 
 `pulumi destroy` deletes resources in the right dependency order, ending with the resource group.
 
-## If you also did Labs 6 to 12
-
-- **Every stack must be destroyed separately.** Run `pulumi destroy` on `dev`, then `pulumi stack select prod` and `pulumi destroy` again. Remove each with `pulumi stack rm <name>`.
-- **AKS (Lab 12):** the cluster, load balancer and node group are the costly part. Destroy before anything else and confirm no `MC_` resource group remains.
-- **Key Vault (Lab 7):** deleted vaults are kept for 7 days and their names stay reserved. Purge to reuse a name: `az keyvault list-deleted -o table`, then `az keyvault purge --name <vault-name>`.
 
 ## Verify nothing is left
 
