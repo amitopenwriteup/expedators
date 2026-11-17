@@ -318,35 +318,12 @@ Expected: hostname `vm-lab-dev` and Ubuntu 24.04.
 ## Exercises
 
 1. **Resize:** `pulumi config set vmSize Standard_B2s`, then `pulumi up`.
-2. **Install nginx at boot:** in `vm.py` add `custom_data` to `OSProfileArgs`:
-
-   ```python
-   import base64
-   init = "#!/bin/bash\napt-get update && apt-get install -y nginx\n"
-   # inside OSProfileArgs(...):
-   custom_data=base64.b64encode(init.encode()).decode(),
-   ```
-
-   Port 80 is already open in the Lab 3 NSG. Browse to the public IP.
 3. **Pause charges without deleting:** `az vm deallocate -g rg-lab-dev -n vm-lab-dev`
-
 > **Version check:** the registry links open the latest Azure Native docs. If your `requirements.txt` pins version 2, use the same pages under `azure-native@2.x`, e.g. `https://www.pulumi.com/registry/packages/azure-native@2.x/api-docs/compute/virtualmachine/`.
 
 ---
 
-## Troubleshooting
 
-| Problem | Fix |
-|---------|-----|
-| `SkuNotAvailable` | `pulumi config set vmSize Standard_B2s` or change region. List: `az vm list-skus -l centralindia --size Standard_B -o table` |
-| `Permission denied (publickey)` | Use `-i ~/.ssh/lab_vm`; the config must hold the **public** key |
-| SSH times out | Your IP changed: `pulumi config set sshSource <new-ip>/32`, then `pulumi up` |
-| Key format error | Key must be one line starting `ssh-ed25519` or `ssh-rsa` |
-| vCPU quota error | Request a quota increase or pick a smaller size |
-| `NameError: name 'nic' is not defined` | Part B code is missing, or parts were pasted out of order |
-| `ValueError: too many values to unpack` | `create_vm` returns two values; unpack `public_ip, virtual_machine` (Part C) |
-
-## Cleanup
 
 The VM costs a few cents per hour. Destroy it in Lab 5, or deallocate it to pause charges.
 
