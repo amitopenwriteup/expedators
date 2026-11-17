@@ -329,6 +329,8 @@ Use `ignore_changes` sparingly, for values another system legitimately manages (
 
 ```bash
 az network nsg create -g rg-lab-dev -n nsg-imported-dev -l centralindia
+export SUB=$(az account show --query id -o tsv)
+echo $SUB
 ```
 
 ### C2. Import it
