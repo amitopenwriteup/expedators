@@ -318,7 +318,9 @@ Expected: hostname `vm-lab-dev` and Ubuntu 24.04.
 ## Exercises
 
 1. **Resize:** `pulumi config set vmSize Standard_B2s`, then `pulumi up`.
-3. **Pause charges without deleting:** `az vm deallocate -g rg-lab-dev -n vm-lab-dev`
+2. pulumi stack --show-urns | grep VirtualMachine
+3. pulumi destroy --target 'urn:pulumi:dev::pulumi-azure-labs::azure-native:compute:VirtualMachine::vm'
+4. **Pause charges without deleting:** `az vm deallocate -g rg-lab-dev -n vm-lab-dev`
 > **Version check:** the registry links open the latest Azure Native docs. If your `requirements.txt` pins version 2, use the same pages under `azure-native@2.x`, e.g. `https://www.pulumi.com/registry/packages/azure-native@2.x/api-docs/compute/virtualmachine/`.
 
 ---
