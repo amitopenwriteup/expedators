@@ -118,9 +118,10 @@ Expected: `rg-lab-dev`, `centralindia`, and the full ID of `snet-web`, read from
 
 ### B1. Code
 
-Add `from pulumi_azure_native import network as az_network` at the top, and add below the exports:
+Add `from pulumi_azure_native import network as az_network` at the top, and add below the exports: __main__.py file
 
 ```python
+from pulumi_azure_native import network as az_network
 nic = az_network.NetworkInterface(
     "nic-app",
     network_interface_name=f"nic-app-{env}",
