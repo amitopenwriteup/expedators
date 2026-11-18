@@ -136,7 +136,6 @@ pulumi destroy
 **7.2 Remove the stack and log out (only when you no longer need the state):**
 
 ```bash
-pulumi stack rm dev
 pulumi logout
 ```
 
@@ -161,8 +160,9 @@ Only delete `dev-state.json` and the `.bak` file once you are sure you don't nee
 
 ```bash
 pulumi login --local
-pulumi stack init dev
-pulumi stack import --file dev-state.json
+pulumi stack ls
+pulumi preview
+pulumi up
 ```
 
 **Optional: rotate the key.** If the key was ever pasted somewhere it shouldn't be, regenerate it before deleting or reusing the account:
