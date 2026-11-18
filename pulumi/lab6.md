@@ -243,6 +243,9 @@ Preview the other stack without switching:
 
 ```bash
 pulumi preview --stack dev
+pulumi stack ls
+pulumi stack select dev
+pulumi stack ls
 ```
 
 ---
