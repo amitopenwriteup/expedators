@@ -213,6 +213,10 @@ No VM, public IP or NIC, because `deployVm` is false. Ranges should start with `
 ```bash
 pulumi stack ls
 pulumi config
+pulumi stack select dev
+pulumi stack ls
+pulumi stack select prod
+pulumi stack ls
 ```
 
 Expected: `dev` and `prod` listed, and `prod` config shows `vnetPrefix 10.1` and `deployVm false`.
