@@ -214,7 +214,6 @@ Part F: aliases     rename a resource without replacing it
 
 ```bash
 cd ~/pulumi-azure-labs
-source venv/bin/activate
 pulumi stack select dev
 pulumi preview          # expect: no changes
 SUB=$(az account show --query id -o tsv)
