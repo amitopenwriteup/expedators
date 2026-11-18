@@ -1,4 +1,4 @@
-# Lab 5: Secrets and Stack References (Step by Step)
+# Lab 5: Secrets 
 
 **Cost:** Free (config, outputs and one Application Security Group)
 
