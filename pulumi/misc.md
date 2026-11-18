@@ -1,4 +1,4 @@
-I read this as two labs: **Lab 7** covers StackReference, and **Lab 8** covers drift, import and the resource options (`ignore_changes`, `protect`, `retain_on_delete`, `depends_on`, `aliases`). Both are free and build on Labs 1 to 3.
+I read this as two labs: **Lab 7** covers StackReference, and **Lab 8** covers drift, import and the resource options (`ignore_changes`, `protect`, `retain_on_delete`, `depends_on``). Both are free and build on Labs 1 to 3.
 
 ---
 
