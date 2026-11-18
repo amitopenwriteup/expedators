@@ -1,165 +1,234 @@
-# Lab: AKS Networking
+# AKS Networking Lab
 
-A hands-on lab that builds an AKS cluster with **Azure CNI Overlay** and **Cilium network policy**, then explores IP addressing, services, DNS, network policies, egress, ingress and network troubleshooting.
+Hands-on lab for the *Networking concepts for applications in AKS* session. You run it on the AKS cluster you already deployed.
 
-**Level:** Intermediate | **Time:** 2 to 3 hours | **Cost:** Small but real. Delete the resource group at the end.
+| **Source concepts** | [Networking concepts for applications in AKS](https://learn.microsoft.com/en-us/azure/aks/concepts-network) |
 
 ## What you will learn
 
-- See how node, pod and service IP ranges differ in Azure CNI Overlay
-- Expose an app with ClusterIP, public LoadBalancer and internal LoadBalancer services
-- Resolve names with cluster DNS, including across namespaces
-- Restrict traffic with Kubernetes network policies (ingress and egress)
-- Publish an app through the managed application routing (NGINX) ingress
-- Diagnose three common network faults
+1. Find out which network model, data plane and outbound type your cluster uses.
+2. See how nodes, pods and Services get IP addresses and connectivity.
+3. Expose an app with ClusterIP, public LoadBalancer and internal LoadBalancer Services, and see what Azure creates for you.
+4. Check egress (outbound) behavior and where your cluster's public outbound IP comes from.
+5. Inspect network security groups (NSGs) and know what you own on a custom subnet.
+6. Trace DNS resolution with CoreDNS, and detect LocalDNS.
+7. Lock down pod-to-pod traffic with network policies.
+8. (Optional) Route HTTP traffic with an Ingress.
 
 ## Prerequisites
 
-- An Azure subscription (Contributor on the subscription or resource group)
-- Azure CLI and `kubectl` (or use **Azure Cloud Shell**, which has both)
-- Enough vCPU quota for 2 small nodes (about 4 vCPUs)
+- An existing AKS cluster (Standard or Automatic) and permission to create namespaces, pods and Services in it.
+- Azure CLI 2.80 or later, signed in with `az login`.
+- `kubectl` with a working context for the cluster.
+- Permission to read resources in the cluster's **node resource group** (Reader is enough for Labs 3 to 5).
+- Outbound access from the cluster to pull `busybox`, `nginx` and `curlimages/curl` images.
 
-> Commands use bash syntax. Names and ranges are examples. This lab has not been run against a live subscription, and flags can change between Azure CLI versions, so check `az aks create --help` if a command fails.
+> **Note:** If your subscription uses Azure Policy that blocks public IPs or public load balancers, the public LoadBalancer step in Lab 3 may be denied. Use the internal load balancer steps instead.
 
----
+### Set your variables
 
-## Lab setup
-
-### Variables and resource group
-
-```bash
-RG=aks-net-lab-rg
-LOCATION=eastus
-CLUSTER=aks-net-lab
-
-az group create --name $RG --location $LOCATION
-```
-
-### Create the cluster
+Bash shown. In PowerShell, replace `export X=...` with `$X = "..."`.
 
 ```bash
-az aks create \
-  --resource-group $RG \
-  --name $CLUSTER \
-  --node-count 2 \
-  --node-vm-size Standard_D2s_v5 \
-  --network-plugin azure \
-  --network-plugin-mode overlay \
-  --pod-cidr 192.168.0.0/16 \
-  --service-cidr 172.16.0.0/16 \
-  --dns-service-ip 172.16.0.10 \
-  --network-dataplane cilium \
-  --network-policy cilium \
-  --generate-ssh-keys
-```
+export RG="<your-aks-resource-group>"
+export AKS="<your-aks-cluster-name>"
+export LOCATION="<your-region>"          # only needed for the optional Lab 7 fallback
 
-This takes 5 to 10 minutes.
-
-### Connect and create namespaces
-
-```bash
-az aks get-credentials --resource-group $RG --name $CLUSTER --overwrite-existing
+az aks get-credentials --resource-group $RG --name $AKS --overwrite-existing
 kubectl get nodes
-
-kubectl create namespace netlab
-kubectl create namespace netlab2
-kubectl create namespace netlab-tsg
 ```
 
-**Checkpoint:** Both nodes show `Ready`.
+**Checkpoint:** all nodes show `Ready`.
 
 ---
 
-## Part 1: Explore IP addressing
+## Lab 0: Discover your cluster's network
 
-### Tasks
+**Goal:** know what you are working with before you test anything. Your results decide how some later steps behave.
 
-1. Look at node IPs:
+### Step 0.1: Read the network profile
+
+```bash
+az aks show -g $RG -n $AKS \
+  --query "networkProfile.{plugin:networkPlugin, mode:networkPluginMode, dataplane:networkDataplane, policy:networkPolicy, podCidr:podCidr, serviceCidr:serviceCidr, dnsServiceIp:dnsServiceIp, outboundType:outboundType}" \
+  -o yaml
+```
+
+Write down your values:
+
+| Field | Meaning | Your value |
+|---|---|---|
+| `plugin` / `mode` | `azure` + `overlay` means overlay model. `azure` with no mode means flat (Azure CNI Node Subnet or Pod Subnet). | |
+| `dataplane` | `cilium` means Azure CNI Powered by Cilium (no `kube-proxy`). `azure` means `kube-proxy` is used. | |
+| `policy` | The network policy engine (`cilium`, `azure`, `calico`), or empty if none. Lab 7 needs one. | |
+| `podCidr` | Pod address range (overlay only). | |
+| `serviceCidr` / `dnsServiceIp` | ClusterIP range and the CoreDNS Service IP. | |
+| `outboundType` | How nodes reach the internet (`loadBalancer`, `managedNATGateway`, `userDefinedRouting`, and so on). | |
+
+### Step 0.2: Find the node resource group
+
+```bash
+export NODE_RG=$(az aks show -g $RG -n $AKS --query nodeResourceGroup -o tsv)
+echo $NODE_RG
+az resource list -g $NODE_RG -o table
+```
+
+**Checkpoint:** you can see VM Scale Sets, a load balancer, an NSG, and a virtual network (if AKS manages the VNet) in the node resource group.
+
+### Step 0.3: Create a working namespace
+
+```bash
+kubectl create namespace netlab
+```
+
+---
+
+## Lab 1: Kubernetes networking basics
+
+**Goal:** see how nodes and pods get IPs, and confirm pods can talk to each other.
+
+### Step 1.1: Look at node IPs
 
 ```bash
 kubectl get nodes -o wide
 ```
 
-2. Look at pod IPs and services across the cluster:
+Note the `INTERNAL-IP` column. These are IPs from your VNet subnet.
+
+### Step 1.2: Deploy a sample app
 
 ```bash
-kubectl get pods -A -o wide
-kubectl get svc -A
+kubectl -n netlab create deployment web --image=nginx --replicas=3
+kubectl -n netlab rollout status deployment/web
+kubectl -n netlab get pods -o wide
 ```
 
-3. View the cluster's network settings:
+Compare the pod `IP` column with the node `INTERNAL-IP` values.
+
+- **Overlay cluster:** pod IPs come from the pod CIDR (often `10.244.x.x`), a range separate from the node subnet.
+- **Flat cluster:** pod IPs come from a subnet in the same virtual network as the nodes.
+
+### Step 1.3: Prove pod-to-pod connectivity
 
 ```bash
-az aks show -g $RG -n $CLUSTER --query networkProfile -o jsonc
+kubectl -n netlab run client --image=busybox:1.36 --restart=Never -- sleep 3600
+kubectl -n netlab wait --for=condition=Ready pod/client --timeout=60s
+
+POD_IP=$(kubectl -n netlab get pod -l app=web -o jsonpath='{.items[0].status.podIP}')
+kubectl -n netlab exec client -- wget -qO- --timeout=3 http://$POD_IP | head -n 4
 ```
 
-4. Find the virtual network AKS created in the node resource group:
+**Checkpoint:** you see the start of the nginx welcome page.
+
+### Step 1.4: Check the service routing component
 
 ```bash
-NODE_RG=$(az aks show -g $RG -n $CLUSTER --query nodeResourceGroup -o tsv)
-az network vnet list -g $NODE_RG -o table
+kubectl -n kube-system get daemonset
 ```
 
-### What to observe
+- If you see a `cilium` DaemonSet and **no** `kube-proxy`, your cluster uses Azure CNI Powered by Cilium.
+- If you see `kube-proxy`, Service routing uses `kube-proxy`.
 
-| Item | Range | Where you see it |
-|---|---|---|
-| Node IPs | VNet range (for example `10.224.x.x`) | `kubectl get nodes -o wide` |
-| Pod IPs | Overlay range `192.168.0.0/16` | `kubectl get pods -A -o wide` |
-| Service IPs | Service CIDR `172.16.0.0/16` | `kubectl get svc -A` |
-| DNS service IP | `172.16.0.10` | `kube-dns` service in `kube-system` |
-
-Some `kube-system` pods use the node IP because they run with host networking.
-
-### Questions
-
-1. Why do pod IPs not consume addresses from the VNet?
-2. Which of the three ranges must not overlap with your other networks?
-
-**Checkpoint:** You can name the node, pod and service ranges and where each is used.
+**Question 1:** Does your result match the `dataplane` value you wrote down in Lab 0?
 
 ---
 
-## Part 2: Services and load balancers
+## Lab 2: Read your network model
 
-### Create a test app and a client pod
+**Goal:** connect what you see to the two models from the session.
 
-```bash
-kubectl create deployment web --image=nginx:1.27 --replicas=2 -n netlab
-kubectl run client --image=busybox:1.36 --restart=Never --labels=role=client -n netlab -- sleep 3600
-kubectl wait --for=condition=Ready pod/client -n netlab --timeout=90s
-kubectl get pods -n netlab -o wide
-```
-
-### 2.1 ClusterIP (internal only)
+### Step 2.1: Compare address spaces
 
 ```bash
-kubectl expose deployment web --port=80 --name=web-clusterip -n netlab
-kubectl get svc web-clusterip -n netlab
-kubectl exec client -n netlab -- wget -qO- -T 5 http://web-clusterip
+kubectl get nodes -o custom-columns=NAME:.metadata.name,NODE-IP:.status.addresses[0].address,POD-CIDR:.spec.podCIDR
+kubectl -n netlab get pods -o custom-columns=POD:.metadata.name,POD-IP:.status.podIP,NODE:.spec.nodeName
 ```
 
-Expected: the nginx welcome page HTML. The service IP is in `172.16.x.x`.
-
-### 2.2 Public LoadBalancer
+### Step 2.2: Find the subnet that nodes use (AKS-managed VNet)
 
 ```bash
-kubectl expose deployment web --port=80 --type=LoadBalancer --name=web-public -n netlab
-kubectl get svc web-public -n netlab -w
+export VNET=$(az network vnet list -g $NODE_RG --query "[0].name" -o tsv)
+az network vnet subnet list -g $NODE_RG --vnet-name $VNET \
+  --query "[].{name:name, prefix:addressPrefix}" -o table
 ```
 
-When `EXTERNAL-IP` appears (press Ctrl+C), test it:
+If this returns nothing, your cluster uses a **bring-your-own VNet**. Find it with:
 
 ```bash
-PUBLIC_IP=$(kubectl get svc web-public -n netlab -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-curl -s http://$PUBLIC_IP | head -5
+az aks show -g $RG -n $AKS \
+  --query "agentPoolProfiles[0].vnetSubnetId" -o tsv
 ```
 
-### 2.3 Internal LoadBalancer
+### Step 2.3: Fill in the table
 
-Save as `web-internal.yaml`:
+| Question | Overlay | Flat |
+|---|---|---|
+| Where do pod IPs come from? | Separate private pod CIDR | Subnet in the node VNet |
+| Which model is your cluster? | | |
+| Pod IP in the node subnet range? | No | Yes |
 
-```yaml
+**Question 2:** Why does the overlay model give simpler, improved scalability compared with the flat model?
+
+---
+
+## Lab 3: Services and load balancing
+
+**Goal:** expose the app three ways and see what Azure creates for you.
+
+### Step 3.1: ClusterIP Service (internal only)
+
+```bash
+kubectl -n netlab expose deployment web --name web-clusterip --port 80
+kubectl -n netlab get svc web-clusterip
+kubectl -n netlab exec client -- wget -qO- --timeout=3 http://web-clusterip | head -n 4
+```
+
+The ClusterIP comes from your `serviceCidr`. It is only reachable inside the cluster.
+
+### Step 3.2: Public LoadBalancer Service
+
+```bash
+kubectl -n netlab expose deployment web --name web-lb --type=LoadBalancer --port 80
+kubectl -n netlab get svc web-lb --watch
+```
+
+Wait until `EXTERNAL-IP` changes from `<pending>` to an address, then press `Ctrl+C`.
+
+```bash
+export LB_IP=$(kubectl -n netlab get svc web-lb -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+curl -I http://$LB_IP
+```
+
+**Checkpoint:** you receive `HTTP/1.1 200 OK`.
+
+### Step 3.3: See what Azure created
+
+Creating a Kubernetes `LoadBalancer` Service configures the matching Azure load balancer resources.
+
+```bash
+az network lb list -g $NODE_RG -o table
+az network lb rule list -g $NODE_RG --lb-name kubernetes -o table
+```
+
+Look for a rule with frontend port `80`.
+
+Azure also configures the NSG rules for Service traffic on AKS-managed resources:
+
+```bash
+export NSG=$(az network nsg list -g $NODE_RG --query "[0].name" -o tsv)
+az network nsg rule list -g $NODE_RG --nsg-name $NSG \
+  --query "[?destinationPortRange=='80'].{name:name, access:access, source:sourceAddressPrefix, destination:destinationAddressPrefix, port:destinationPortRange}" \
+  -o table
+```
+
+**Checkpoint:** you find an `Allow` rule for port 80 pointing at your Service's public IP.
+
+> **Custom subnet note:** If your cluster uses a custom subnet with your own NSG, AKS does not modify that NSG. Check the NSG you attached and make sure it allows the traffic.
+
+### Step 3.4: Internal LoadBalancer Service
+
+```bash
+cat <<'EOF' | kubectl apply -f -
 apiVersion: v1
 kind: Service
 metadata:
@@ -172,298 +241,384 @@ spec:
   selector:
     app: web
   ports:
-  - port: 80
-    targetPort: 80
+    - port: 80
+      targetPort: 80
+EOF
+
+kubectl -n netlab get svc web-internal --watch
 ```
+
+When `EXTERNAL-IP` shows a private address from your VNet, press `Ctrl+C` and test it from inside the cluster:
 
 ```bash
-kubectl apply -f web-internal.yaml
-kubectl get svc web-internal -n netlab -w
-INTERNAL_IP=$(kubectl get svc web-internal -n netlab -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-echo $INTERNAL_IP
-kubectl exec client -n netlab -- wget -qO- -T 5 http://$INTERNAL_IP
+INT_IP=$(kubectl -n netlab get svc web-internal -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+kubectl -n netlab exec client -- wget -qO- --timeout=3 http://$INT_IP | head -n 4
 ```
 
-The internal IP is a private address from the VNet. It works from inside the network but not from the internet.
-
-### 2.4 See the Azure side
-
-```bash
-az network lb list -g $NODE_RG -o table
-az network lb frontend-ip list -g $NODE_RG --lb-name kubernetes -o table
-az network lb frontend-ip list -g $NODE_RG --lb-name kubernetes-internal -o table
-```
-
-**Checkpoint:** You reached the app through ClusterIP, the public IP and the internal IP, and you found each frontend IP in Azure.
-
-### Questions
-
-1. Which service type would you use for a private API reachable only from your corporate network?
-2. What does the Azure load balancer named `kubernetes` hold?
+**Question 3:** What is the difference between the `EXTERNAL-IP` of `web-lb` and `web-internal`?
 
 ---
 
-## Part 3: DNS
+## Lab 4: Egress (outbound) traffic
 
-### Tasks
+**Goal:** see how pods reach the internet and which public IP the world sees.
 
-```bash
-kubectl exec client -n netlab -- cat /etc/resolv.conf
-kubectl exec client -n netlab -- nslookup web-clusterip
-kubectl exec client -n netlab -- nslookup web-clusterip.netlab.svc.cluster.local
-```
-
-Create a service in another namespace and reach it by name:
+### Step 4.1: See the outbound IP from a pod
 
 ```bash
-kubectl create deployment web2 --image=nginx:1.27 -n netlab2
-kubectl expose deployment web2 --port=80 -n netlab2
-kubectl exec client -n netlab -- nslookup web2.netlab2
-kubectl exec client -n netlab -- wget -qO- -T 5 http://web2.netlab2 | head -3
+kubectl -n netlab run egress-test --image=curlimages/curl --restart=Never --rm -it -- \
+  curl -s https://api.ipify.org
+echo
 ```
 
-Check CoreDNS:
+Note the IP address.
+
+### Step 4.2: Match it to your cluster's outbound path
+
+If `outboundType` is `loadBalancer`:
 
 ```bash
-kubectl get pods -n kube-system -l k8s-app=kube-dns
-kubectl get svc kube-dns -n kube-system
+az aks show -g $RG -n $AKS \
+  --query "networkProfile.loadBalancerProfile.effectiveOutboundIPs[].id" -o tsv
+
+az network public-ip show \
+  --ids $(az aks show -g $RG -n $AKS --query "networkProfile.loadBalancerProfile.effectiveOutboundIPs[0].id" -o tsv) \
+  --query ipAddress -o tsv
 ```
 
-### What to observe
+**Checkpoint:** this IP equals the one from Step 4.1.
 
-- `resolv.conf` uses nameserver `172.16.0.10` and a search path starting with `netlab.svc.cluster.local`.
-- A short name (`web-clusterip`) works inside the same namespace.
-- Another namespace needs `<service>.<namespace>`.
+If your `outboundType` is `managedNATGateway` or `userDefinedRouting`, the outbound IP comes from the NAT gateway or your firewall or route setup instead. Find that resource and compare its public IP.
 
-**Checkpoint:** You resolved a service in the same namespace and one in another namespace.
+### Step 4.3: Check the default outbound access setting (AKS-managed VNet only)
+
+Since March 31, 2026, AKS no longer supports default outbound access for VMs. New clusters on an AKS-managed VNet place their subnets in private subnets (`defaultOutboundAccess = false`). AKS-managed cluster traffic is not affected because it uses explicitly configured outbound paths. Clusters that bring their own VNet are not affected.
+
+```bash
+az network vnet subnet list -g $NODE_RG --vnet-name $VNET -o json \
+  | grep -i defaultOutboundAccess
+```
+
+If your CLI version does not print the property, skip this step.
+
+### Step 4.4: Discuss, do not change
+
+By default, AKS clusters have unrestricted outbound internet access. AKS dependencies outside the VNet are almost entirely defined by FQDNs. To restrict egress, read [Control egress traffic for cluster nodes in AKS](https://learn.microsoft.com/en-us/azure/aks/limit-egress-traffic). Do not change the outbound type on a shared lab cluster.
+
+**Question 4:** Why must you plan for FQDN-based dependencies before restricting outbound traffic?
 
 ---
 
-## Part 4: Network policies (ingress)
+## Lab 5: Network security groups
 
-By default every pod can talk to every other pod. You will lock this down.
+**Goal:** know what Azure manages and what you own.
 
-### 4.1 Confirm everything is open
+### Step 5.1: List NSGs and where they attach
 
 ```bash
-kubectl run other --image=busybox:1.36 --restart=Never -n netlab2 -- sleep 3600
-kubectl wait --for=condition=Ready pod/other -n netlab2 --timeout=90s
-kubectl exec other -n netlab2 -- wget -qO- -T 5 http://web-clusterip.netlab | head -3
+az network nsg list -g $NODE_RG -o table
+
+az network vnet subnet list -g $NODE_RG --vnet-name $VNET \
+  --query "[].{subnet:name, nsg:networkSecurityGroup.id}" -o table
 ```
 
-It works.
+If you use a custom subnet, list the NSG on that subnet instead:
 
-### 4.2 Default deny ingress
+```bash
+az network vnet subnet show --ids <your-subnet-id> --query networkSecurityGroup.id -o tsv
+```
 
-Save as `default-deny-ingress.yaml`:
+### Step 5.2: Review all rules on the AKS-managed NSG
 
-```yaml
+```bash
+az network nsg rule list -g $NODE_RG --nsg-name $NSG \
+  --query "sort_by([],&priority)[].{prio:priority, name:name, access:access, dir:direction, proto:protocol, port:destinationPortRange}" \
+  -o table
+```
+
+### Step 5.3: Check your own NSG against the required traffic
+
+If you restrict traffic with NSG rules on a custom VNet, make sure your rules allow this traffic.
+
+**Node and pod traffic** (when your rules restrict these CIDR ranges):
+
+| Source | Destination | Protocol | Port | Purpose |
+|---|---|---|---|---|
+| Node CIDR | Node CIDR | All | All | Node to node |
+| Node CIDR | Pod CIDR | All | All | Service traffic routing |
+| Pod CIDR | Pod CIDR | All | All | Pod to pod and pod to Service, including DNS |
+
+**API Server VNet Integration** (preconfigured in AKS Automatic, optional in AKS Standard):
+
+| Source | Destination | Protocol | Port | Purpose |
+|---|---|---|---|---|
+| Cluster subnet | APIServer subnet CIDR | TCP | 443 and 4443 | Nodes to API server |
+| Azure Load Balancer | APIServer subnet CIDR | TCP | 9988 | Load balancer to API server |
+
+Check whether API Server VNet Integration is on:
+
+```bash
+az aks show -g $RG -n $AKS --query "apiServerAccessProfile.enableVnetIntegration" -o tsv
+```
+
+**Question 5:** AKS created rules for your `web-lb` Service automatically. Why might the same Service stop working on a custom subnet with a restrictive NSG you attached?
+
+---
+
+## Lab 6: DNS resolution
+
+**Goal:** trace how a pod resolves names and detect whether LocalDNS is active.
+
+### Step 6.1: Inspect CoreDNS
+
+```bash
+kubectl -n kube-system get pods -l k8s-app=kube-dns -o wide
+kubectl -n kube-system get svc kube-dns
+az aks show -g $RG -n $AKS --query networkProfile.dnsServiceIp -o tsv
+```
+
+**Checkpoint:** the `kube-dns` Service `CLUSTER-IP` matches `dnsServiceIp`.
+
+### Step 6.2: Look at a pod's DNS settings
+
+```bash
+kubectl -n netlab exec client -- cat /etc/resolv.conf
+```
+
+Note the `nameserver` and the `search` domains (`netlab.svc.cluster.local`, `svc.cluster.local`, `cluster.local`).
+
+### Step 6.3: Resolve Service names
+
+Use `busybox:1.28`, because `nslookup` is unreliable in newer BusyBox images.
+
+```bash
+# Short name (same namespace)
+kubectl -n netlab run dns-test --image=busybox:1.28 --restart=Never --rm -it -- nslookup web-clusterip
+
+# Fully qualified name
+kubectl -n netlab run dns-test --image=busybox:1.28 --restart=Never --rm -it -- \
+  nslookup web-clusterip.netlab.svc.cluster.local
+
+# External name
+kubectl -n netlab run dns-test --image=busybox:1.28 --restart=Never --rm -it -- nslookup learn.microsoft.com
+```
+
+**Checkpoint:** the Service names resolve to the `web-clusterip` ClusterIP.
+
+### Step 6.4: Detect LocalDNS
+
+LocalDNS runs a DNS proxy on each node. It is preconfigured in AKS Automatic and optional per node pool in AKS Standard.
+
+```bash
+kubectl -n netlab run dns-test --image=busybox:1.28 --restart=Never --rm -it -- nslookup kubernetes.default
+```
+
+Read the `Server:` line:
+
+| Server value | Meaning |
+|---|---|
+| `169.254.10.10` or `169.254.10.11` | LocalDNS is active on that node |
+| Your `dnsServiceIp` (for example `10.0.0.10`) | Pods query CoreDNS directly |
+
+### Step 6.5: (Optional, disruptive) Enable LocalDNS on a Standard node pool
+
+> **Warning:** Enabling LocalDNS **reimages every node** in the pool. Do this only on a lab cluster, with disruption budgets in place. Requirements include Kubernetes 1.31 or later, Azure Linux or Ubuntu 22.04 or later, and a VM SKU with at least 4 vCPUs.
+
+Create a `localdnsconfig.json` from the template in [Configure LocalDNS in AKS](https://learn.microsoft.com/en-us/azure/aks/localdns-custom), then run:
+
+```bash
+az aks nodepool update -g $RG --cluster-name $AKS --name <nodepool-name> \
+  --localdns-config ./localdnsconfig.json
+```
+
+Repeat Step 6.4 from a pod on that node pool and confirm the server is `169.254.10.10` or `169.254.10.11`.
+
+**Question 6:** What problem does LocalDNS remove for clusters with heavy DNS traffic, and how reliable is its stale-response caching?
+
+---
+
+## Lab 7: Network policies
+
+**Goal:** go from "all pods can talk to all pods" to a locked-down three-tier app.
+
+### Step 7.0: Check that a policy engine exists
+
+```bash
+az aks show -g $RG -n $AKS --query "networkProfile.networkPolicy" -o tsv
+```
+
+- If it prints `cilium`, `azure` or `calico`, continue with Step 7.1 on your cluster.
+- If it prints nothing, policies are **not enforced** on your cluster. Use the fallback cluster below, then continue.
+
+<details>
+<summary>Fallback: create a small policy-enabled lab cluster</summary>
+
+```bash
+az group create -n ${RG}-netpol -l $LOCATION
+
+az aks create -g ${RG}-netpol -n aks-netpol \
+  --node-count 2 \
+  --network-plugin azure --network-plugin-mode overlay \
+  --network-dataplane cilium --network-policy cilium \
+  --generate-ssh-keys
+
+az aks get-credentials -g ${RG}-netpol -n aks-netpol --context aks-netpol --overwrite-existing
+kubectl config current-context
+```
+
+The final command should print `aks-netpol`. Remember to delete this cluster in the cleanup section.
+
+</details>
+
+### Step 7.1: Deploy a three-tier app
+
+```bash
+kubectl create namespace shop
+
+kubectl -n shop run backend --image=busybox:1.36 --labels=app=backend --port=80 -- \
+  sh -c 'echo backend > /tmp/index.html; httpd -f -p 80 -h /tmp'
+kubectl -n shop run db --image=busybox:1.36 --labels=app=db --port=80 -- \
+  sh -c 'echo db > /tmp/index.html; httpd -f -p 80 -h /tmp'
+kubectl -n shop run frontend --image=busybox:1.36 --labels=app=frontend -- sleep 3600
+
+kubectl -n shop expose pod backend --port 80
+kubectl -n shop expose pod db --port 80
+
+kubectl -n shop wait --for=condition=Ready pod --all --timeout=90s
+```
+
+### Step 7.2: Prove the default is wide open
+
+```bash
+kubectl -n shop exec frontend -- wget -qO- --timeout=3 http://backend
+kubectl -n shop exec frontend -- wget -qO- --timeout=3 http://db
+```
+
+**Checkpoint:** both print their name (`backend`, `db`). By default, all pods can send and receive traffic. The frontend reaching the database directly is the problem we will fix.
+
+### Step 7.3: Deny all ingress traffic in the namespace
+
+```bash
+cat <<'EOF' | kubectl apply -f -
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: default-deny-ingress
-  namespace: netlab
+  namespace: shop
 spec:
   podSelector: {}
   policyTypes:
-  - Ingress
+    - Ingress
+EOF
+
+kubectl -n shop exec frontend -- wget -qO- --timeout=3 http://backend
 ```
+
+**Checkpoint:** the request now fails with `download timed out`.
+
+### Step 7.4: Allow frontend to backend only
 
 ```bash
-kubectl apply -f default-deny-ingress.yaml
-kubectl exec client -n netlab -- wget -qO- -T 3 http://web-clusterip
-kubectl exec other -n netlab2 -- wget -qO- -T 3 http://web-clusterip.netlab
-```
-
-Expected: both requests time out (`download timed out`).
-
-### 4.3 Allow only the client pod
-
-Save as `allow-client-to-web.yaml`:
-
-```yaml
+cat <<'EOF' | kubectl apply -f -
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-client-to-web
-  namespace: netlab
+  name: allow-frontend-to-backend
+  namespace: shop
 spec:
   podSelector:
     matchLabels:
-      app: web
+      app: backend
   policyTypes:
-  - Ingress
+    - Ingress
   ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          role: client
-    ports:
-    - protocol: TCP
-      port: 80
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+      ports:
+        - protocol: TCP
+          port: 80
+EOF
 ```
+
+### Step 7.5: Allow backend to database only
 
 ```bash
-kubectl apply -f allow-client-to-web.yaml
-kubectl exec client -n netlab -- wget -qO- -T 5 http://web-clusterip | head -3
-kubectl exec other -n netlab2 -- wget -qO- -T 3 http://web-clusterip.netlab
-```
-
-Expected: the client works; the pod in `netlab2` still times out.
-
-### 4.4 Effect on the public load balancer
-
-```bash
-curl -s -m 5 http://$PUBLIC_IP | head -3
-```
-
-The public IP may stop responding because ingress to the `web` pods is now restricted. In real designs, allow external traffic explicitly, for example:
-
-```yaml
+cat <<'EOF' | kubectl apply -f -
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-internet-to-web
-  namespace: netlab
+  name: allow-backend-to-db
+  namespace: shop
 spec:
   podSelector:
     matchLabels:
-      app: web
+      app: db
   policyTypes:
-  - Ingress
+    - Ingress
   ingress:
-  - from:
-    - ipBlock:
-        cidr: 0.0.0.0/0
-    ports:
-    - protocol: TCP
-      port: 80
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - protocol: TCP
+          port: 80
+EOF
 ```
 
-Apply it only if you want to restore public access. Behaviour can depend on the traffic path, so test it and record what you see.
+### Step 7.6: Verify the final behavior
 
-**Checkpoint:** You demonstrated allowed and blocked traffic using labels.
+```bash
+echo "--- frontend -> backend (expect: backend)"
+kubectl -n shop exec frontend -- wget -qO- --timeout=3 http://backend
 
-### Questions
+echo "--- frontend -> db (expect: timeout)"
+kubectl -n shop exec frontend -- wget -qO- --timeout=3 http://db
 
-1. Why does the policy select pods with `app: web` and the source with `role: client`?
-2. What happens when a pod is selected by no policy?
+echo "--- backend -> db (expect: db)"
+kubectl -n shop exec backend -- wget -qO- --timeout=3 http://db
+```
+
+| Path | Expected result |
+|---|---|
+| frontend to backend | Allowed (`backend`) |
+| frontend to db | **Blocked** (timeout) |
+| backend to db | Allowed (`db`) |
+
+> DNS keeps working because these policies only restrict **ingress** to pods in `shop`.
+
+### Step 7.7: Inspect the policies
+
+```bash
+kubectl -n shop get networkpolicy
+kubectl -n shop describe networkpolicy allow-backend-to-db
+```
+
+**Question 7:** Your NSG rules are better for AKS nodes. Why are network policies a better fit for pods?
 
 ---
 
-## Part 5: Egress and outbound traffic
+## Lab 8 (optional): Ingress for HTTP routing
 
-### 5.1 Find the cluster outbound IP
+**Goal:** route HTTP traffic to a Service with a Layer 7 Ingress, instead of one public IP per Service.
 
-```bash
-OUT_ID=$(az aks show -g $RG -n $CLUSTER --query "networkProfile.loadBalancerProfile.effectiveOutboundIPs[0].id" -o tsv)
-az network public-ip show --ids $OUT_ID --query ipAddress -o tsv
+This lab uses the AKS application routing add-on. Check the current [application routing documentation](https://learn.microsoft.com/en-us/azure/aks/app-routing) first, because add-on options can change.
 
-kubectl run egress-check --rm -it --image=curlimages/curl --restart=Never -n netlab -- curl -s https://api.ipify.org
-```
-
-The two IP addresses should match. All pods share this outbound address by default.
-
-### 5.2 Restrict egress to DNS only
-
-Save as `client-egress-dns-only.yaml`:
-
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: client-egress-dns-only
-  namespace: netlab
-spec:
-  podSelector:
-    matchLabels:
-      role: client
-  policyTypes:
-  - Egress
-  egress:
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: kube-system
-      podSelector:
-        matchLabels:
-          k8s-app: kube-dns
-    ports:
-    - protocol: UDP
-      port: 53
-    - protocol: TCP
-      port: 53
-```
+### Step 8.1: Enable the add-on
 
 ```bash
-kubectl apply -f client-egress-dns-only.yaml
-kubectl exec client -n netlab -- nslookup web-clusterip
-kubectl exec client -n netlab -- wget -qO- -T 3 http://web-clusterip
-kubectl exec client -n netlab -- wget -qO- -T 3 http://example.com
+az aks approuting enable -g $RG -n $AKS
+kubectl get ingressclass
 ```
 
-Expected: the lookup works, but both `wget` requests time out.
+**Checkpoint:** you see the class `webapprouting.kubernetes.azure.com`.
 
-### 5.3 Allow egress to the web pods only
-
-Save as `client-egress-web.yaml`:
-
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: client-egress-web
-  namespace: netlab
-spec:
-  podSelector:
-    matchLabels:
-      role: client
-  policyTypes:
-  - Egress
-  egress:
-  - to:
-    - podSelector:
-        matchLabels:
-          app: web
-    ports:
-    - protocol: TCP
-      port: 80
-```
+### Step 8.2: Create an Ingress for the `web` app
 
 ```bash
-kubectl apply -f client-egress-web.yaml
-kubectl exec client -n netlab -- wget -qO- -T 5 http://web-clusterip | head -3
-kubectl exec client -n netlab -- wget -qO- -T 3 http://example.com
-```
-
-Expected: the internal request works; the internet request is still blocked.
-
-**Checkpoint:** You can allow DNS and one internal destination while blocking everything else.
-
-### Think about it
-
-- How would you give your cluster a fixed outbound IP? (a NAT Gateway or Azure Firewall with user defined routes)
-- Which tool would you use to restrict outbound traffic by domain name? (Azure Firewall, or an egress gateway)
-
----
-
-## Part 6: Ingress with application routing
-
-### 6.1 Enable the managed ingress
-
-```bash
-az aks approuting enable --resource-group $RG --name $CLUSTER
-kubectl get pods -n app-routing-system
-kubectl get svc -n app-routing-system
-```
-
-Wait until the `nginx` service has an `EXTERNAL-IP`.
-
-### 6.2 Create an Ingress
-
-Save as `web-ingress.yaml`:
-
-```yaml
+cat <<'EOF' | kubectl apply -f -
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -472,270 +627,105 @@ metadata:
 spec:
   ingressClassName: webapprouting.kubernetes.azure.com
   rules:
-  - host: web.lab.local
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: web-clusterip
-            port:
-              number: 80
-```
-
-```bash
-kubectl apply -f web-ingress.yaml
-ING_IP=$(kubectl get svc nginx -n app-routing-system -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-echo $ING_IP
-curl -s -m 10 -H "Host: web.lab.local" http://$ING_IP | head -5
-```
-
-### 6.3 Why does it fail?
-
-Your default-deny policy from Part 4 still applies, so the ingress controller pods in `app-routing-system` cannot reach the `web` pods. You will probably see a `504` or a timeout.
-
-Confirm:
-
-```bash
-kubectl describe ingress web-ingress -n netlab
-kubectl get networkpolicy -n netlab
-```
-
-### 6.4 Fix it with a policy
-
-Save as `allow-ingress-controller.yaml`:
-
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-ingress-controller
-  namespace: netlab
-spec:
-  podSelector:
-    matchLabels:
-      app: web
-  policyTypes:
-  - Ingress
-  ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: app-routing-system
-    ports:
-    - protocol: TCP
-      port: 80
-```
-
-```bash
-kubectl apply -f allow-ingress-controller.yaml
-curl -s -m 10 -H "Host: web.lab.local" http://$ING_IP | head -5
-```
-
-**Checkpoint:** The nginx page is returned through the ingress using the `Host` header.
-
-### Questions
-
-1. Why use one ingress public IP for many apps instead of one load balancer per service?
-2. How would you add HTTPS? (a TLS secret or certificate from Key Vault, and a `tls` section in the Ingress)
-
----
-
-## Part 7: Troubleshooting scenarios
-
-Use the `netlab-tsg` namespace, which has no network policies. For each scenario, set it up, find the cause, fix it, and verify.
-
-First, a test pod:
-
-```bash
-kubectl run tester --image=busybox:1.36 --restart=Never -n netlab-tsg -- sleep 3600
-kubectl wait --for=condition=Ready pod/tester -n netlab-tsg --timeout=90s
-```
-
-### Scenario A: Service has no endpoints
-
-```bash
-kubectl create deployment shop --image=nginx:1.27 -n netlab-tsg
-kubectl create service clusterip shop --tcp=80:80 -n netlab-tsg
-kubectl patch svc shop -n netlab-tsg -p '{"spec":{"selector":{"app":"shop-typo"}}}'
-kubectl exec tester -n netlab-tsg -- wget -qO- -T 3 http://shop
-```
-
-**Find it:**
-
-```bash
-kubectl get endpoints shop -n netlab-tsg
-kubectl get svc shop -n netlab-tsg -o wide
-kubectl get pods -n netlab-tsg --show-labels
-```
-
-**Solution:**
-
-```bash
-kubectl patch svc shop -n netlab-tsg -p '{"spec":{"selector":{"app":"shop"}}}'
-kubectl exec tester -n netlab-tsg -- wget -qO- -T 3 http://shop | head -3
-```
-
-### Scenario B: Wrong target port
-
-```bash
-kubectl create deployment api --image=nginx:1.27 -n netlab-tsg
-kubectl create service clusterip api --tcp=80:8080 -n netlab-tsg
-kubectl exec tester -n netlab-tsg -- wget -qO- -T 3 http://api
-```
-
-**Find it:**
-
-```bash
-kubectl get endpoints api -n netlab-tsg
-kubectl describe svc api -n netlab-tsg
-```
-
-Endpoints exist, but they use port `8080`, where nginx does not listen. The request is refused or times out.
-
-**Solution:**
-
-```bash
-kubectl patch svc api -n netlab-tsg --type=json \
-  -p '[{"op":"replace","path":"/spec/ports/0/targetPort","value":80}]'
-kubectl exec tester -n netlab-tsg -- wget -qO- -T 3 http://api | head -3
-```
-
-### Scenario C: Egress policy blocks DNS
-
-```bash
-kubectl run locked --image=busybox:1.36 --restart=Never --labels=role=locked -n netlab-tsg -- sleep 3600
-kubectl wait --for=condition=Ready pod/locked -n netlab-tsg --timeout=90s
-
-cat <<'EOF' | kubectl apply -f -
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: locked-deny-egress
-  namespace: netlab-tsg
-spec:
-  podSelector:
-    matchLabels:
-      role: locked
-  policyTypes:
-  - Egress
+    - host: demo.contoso.test
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web-clusterip
+                port:
+                  number: 80
 EOF
 
-kubectl exec locked -n netlab-tsg -- nslookup shop
+kubectl -n netlab get ingress web-ingress --watch
 ```
 
-Expected: the lookup times out.
-
-**Find it:**
+### Step 8.3: Test it with a Host header
 
 ```bash
-kubectl get networkpolicy -n netlab-tsg
-kubectl describe networkpolicy locked-deny-egress -n netlab-tsg
-kubectl exec tester -n netlab-tsg -- nslookup shop
+ING_IP=$(kubectl -n netlab get ingress web-ingress -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+curl -I -H "Host: demo.contoso.test" http://$ING_IP
+curl -I http://$ING_IP
 ```
 
-A normal pod resolves the name, so DNS works. The `locked` pod is blocked because the egress policy has no rule that allows port 53.
-
-**Solution:**
-
-```bash
-cat <<'EOF' | kubectl apply -f -
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: locked-deny-egress
-  namespace: netlab-tsg
-spec:
-  podSelector:
-    matchLabels:
-      role: locked
-  policyTypes:
-  - Egress
-  egress:
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: kube-system
-      podSelector:
-        matchLabels:
-          k8s-app: kube-dns
-    ports:
-    - protocol: UDP
-      port: 53
-    - protocol: TCP
-      port: 53
-EOF
-kubectl exec locked -n netlab-tsg -- nslookup shop
-```
-
-**Checkpoint:** All three scenarios are fixed and you can explain each root cause.
+**Checkpoint:** the request with the matching `Host` header returns `200 OK`. The request without it does not reach your app. That is Layer 7 routing at work.
 
 ---
 
-## Network troubleshooting flow
+## Validation checklist
 
-1. **Does the name resolve?** `nslookup <service>` from a pod. If not: CoreDNS, egress policy on DNS.
-2. **Does the service have endpoints?** `kubectl get endpoints <svc>`. If none: selector or pod readiness.
-3. **Are the ports right?** Compare `port`, `targetPort` and the container port.
-4. **Is a network policy in the way?** `kubectl get networkpolicy -A`, and test from a pod in a namespace with no policy.
-5. **Is the Azure layer healthy?** Load balancer rules, NSGs, routes, firewall rules.
+Tick each item before you finish.
 
----
+- [ ] I can say whether my cluster uses overlay or flat, and Cilium or `kube-proxy` (Labs 0 to 2).
+- [ ] I created ClusterIP, public LoadBalancer and internal LoadBalancer Services (Lab 3).
+- [ ] I found the Azure load balancer rule and NSG rule created for my Service (Lab 3).
+- [ ] I matched the pod's outbound IP to the cluster's outbound path (Lab 4).
+- [ ] I know which NSG applies to my nodes and what I own on a custom subnet (Lab 5).
+- [ ] I resolved Service names through CoreDNS and checked for LocalDNS (Lab 6).
+- [ ] I blocked frontend to db and allowed backend to db with network policies (Lab 7).
 
 ## Knowledge check
 
-1. In Azure CNI Overlay, which addresses come from the VNet and which from the overlay range?
-2. What is the difference between `ClusterIP`, `LoadBalancer` and `Ingress`?
-3. Why does a default-deny ingress policy also break your ingress controller?
-4. A pod resolves names in its own namespace but not in another. What would you check first?
-5. Why must egress policies usually include a rule for DNS?
-6. A Service has endpoints but connections fail. Name two causes.
+<details>
+<summary>Show suggested answers</summary>
 
-**Suggested answers**
+1. The DaemonSet list should agree with `dataplane`: `cilium` means no `kube-proxy`; `azure` means `kube-proxy` is present.
+2. In overlay, pods get addresses from a separate private CIDR, so the node subnet does not need room for every pod. This is simpler and scales better than putting pods in the VNet subnet (flat).
+3. `web-lb` gets a public IP reachable from the internet. `web-internal` gets a private IP from your VNet, reachable only from inside the VNet or connected networks.
+4. Cluster dependencies outside the VNet are almost entirely defined by FQDNs. If you block them without allowing the required FQDNs, nodes cannot reach what AKS needs.
+5. AKS does not apply NSGs to its subnet or modify an NSG you attach to a customer-provided subnet. Your own rules must allow the required node, pod and Service traffic.
+6. LocalDNS resolves queries locally on each node, reducing latency and removing `conntrack` table pressure from DNS traffic. Stale-response caching is best effort, so a stale record is not guaranteed.
+7. Pods are created and removed dynamically. Network policies select pods by labels, namespace or port, and can be applied automatically as pods appear. NSGs filter at the VM or subnet level.
 
-1. Nodes (and internal load balancer frontends) use the VNet; pods use the overlay range.
-2. ClusterIP is internal only; LoadBalancer creates an Azure load balancer frontend; Ingress routes HTTP or HTTPS by host and path through one entry point.
-3. The controller pods are in another namespace and are treated like any other source, so they must be allowed explicitly.
-4. Use the full form `<service>.<namespace>`; then check the search path and any network policy.
-5. Without it, the pod cannot resolve service names.
-6. Wrong `targetPort`, application not listening, network policy blocking, readiness issues.
+</details>
 
----
+## Troubleshooting
+
+| Symptom | Likely cause | What to try |
+|---|---|---|
+| `EXTERNAL-IP` stays `<pending>` | Quota, policy, or permissions on the node resource group | `kubectl -n netlab describe svc web-lb` and read the Events |
+| `curl` to the load balancer IP times out | NSG rule missing on a custom subnet, or pods not ready | Check pods are `Running`; review the NSG on your subnet (Lab 5) |
+| Policy has no effect | No network policy engine on the cluster | Check `networkProfile.networkPolicy`; use the Lab 7 fallback cluster |
+| Everything is blocked after Step 7.3 | Default deny applied, allow rules not yet applied | Apply Steps 7.4 and 7.5, then re-test |
+| `nslookup` fails or looks odd | Newer BusyBox `nslookup` bug | Use `busybox:1.28` as in Lab 6 |
+| Image pull errors | Cluster has restricted egress | Allow the registries, or mirror the images |
+| Ingress gets no address | Add-on still starting | `kubectl -n app-routing-system get pods` and wait a few minutes |
 
 ## Cleanup
 
 ```bash
-az group delete --name $RG --yes --no-wait
+# Lab 8 (only if you enabled it)
+kubectl -n netlab delete ingress web-ingress
+az aks approuting disable -g $RG -n $AKS
+
+# Labs 1 to 6
+kubectl delete namespace netlab
+
+# Lab 7
+kubectl delete namespace shop
 ```
 
-Also remove local files if you wish: `rm -f *.yaml` in your working folder.
+If you created the fallback cluster:
 
-## Completion checklist
+```bash
+az group delete -n ${RG}-netpol --yes --no-wait
+kubectl config delete-context aks-netpol
+```
 
-- [ ] Cluster created with Azure CNI Overlay and Cilium
-- [ ] Node, pod and service ranges identified
-- [ ] ClusterIP, public and internal LoadBalancer tested
-- [ ] DNS resolved within and across namespaces
-- [ ] Ingress policy allowed only the client pod
-- [ ] Egress limited to DNS and one internal target
-- [ ] Ingress reached through the application routing add-on
-- [ ] Three fault scenarios diagnosed and fixed
-- [ ] Resource group deleted
+Deleting the `netlab` namespace also removes the public and internal load balancer frontends that AKS created for it. Confirm in the node resource group:
 
-## Command cheat sheet
+```bash
+az network lb rule list -g $NODE_RG --lb-name kubernetes -o table
+```
 
-| Task | Command |
-|---|---|
-| Node and pod IPs | `kubectl get nodes -o wide`, `kubectl get pods -A -o wide` |
-| Service endpoints | `kubectl get endpoints <svc> -n <ns>` |
-| Network settings | `az aks show -g $RG -n $CLUSTER --query networkProfile` |
-| DNS test | `kubectl exec <pod> -- nslookup <name>` |
-| List policies | `kubectl get networkpolicy -A` |
-| Azure LB frontends | `az network lb frontend-ip list -g $NODE_RG --lb-name kubernetes -o table` |
-| Ingress IP | `kubectl get svc nginx -n app-routing-system` |
+## References
 
-## Notes
-
-- Behaviour of load balancer traffic under network policies can vary by traffic path and version. Record what you see and compare it with the current AKS networking documentation.
-- Running clusters, node VMs, load balancers and public IPs incur charges. Always finish with the cleanup step.
+- [Networking concepts for applications in AKS](https://learn.microsoft.com/en-us/azure/aks/concepts-network)
+- [CNI networking in AKS](https://learn.microsoft.com/en-us/azure/aks/concepts-network-cni-overview)
+- [Customize cluster egress with outbound types](https://learn.microsoft.com/en-us/azure/aks/egress-outboundtype)
+- [Control egress traffic for cluster nodes](https://learn.microsoft.com/en-us/azure/aks/limit-egress-traffic)
+- [Configure LocalDNS in AKS](https://learn.microsoft.com/en-us/azure/aks/localdns-custom)
+- [Secure traffic between pods using network policies](https://learn.microsoft.com/en-us/azure/aks/use-network-policies)
+- [Best practices for network connectivity and security in AKS](https://learn.microsoft.com/en-us/azure/aks/operator-best-practices-network)
