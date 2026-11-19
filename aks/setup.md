@@ -1,4 +1,4 @@
-# Deploy an Azure Kubernetes Service (AKS) Cluster Using the Azure Portal
+<img width="821" height="367" alt="image" src="https://github.com/user-attachments/assets/3b5417bb-8742-44ed-a903-4526a494c305" /># Deploy an Azure Kubernetes Service (AKS) Cluster Using the Azure Portal
 
 Step-by-step guide to deploy an AKS cluster in the Azure portal, connect to it (Cloud Shell, PowerShell or Azure CLI), and run the sample **AKS Store** multi-container app.
 
@@ -35,12 +35,16 @@ Step-by-step guide to deploy an AKS cluster in the Azure portal, connect to it (
 | Cluster details | Fleet manager | **None** |
 | Cluster details | Availability zones | **None** (deselect any selected zones) |
 | Cluster details | AKS pricing tier | **Free** |
+| Cluster details | Kubernetes version | **1.35.7** |
+
 
 Leave the remaining settings at their defaults and select **Next**.
 
 > Tip: A new resource group makes cleanup easy and avoids affecting production or dev workloads.
 
 ### 2.2 Node pools tab (System mode)
+
+### delete te default node pool, select and delete it
 
 1. Select **Add node pool** → **Add a Virtual Machine Scale Set node pool**.
 2. Configure:
