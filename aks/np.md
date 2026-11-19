@@ -52,15 +52,6 @@ az aks update -g $RG -n $AKS --network-policy azure
 az aks update -g $RG -n $AKS --network-dataplane cilium --network-policy cilium
 ```
 
-Support for these update flags depends on your cluster's network setup and CLI version. If the command errors, create a throwaway cluster for this lab instead:
-
-```bash
-az group create -n rg-netpol-lab -l centralindia
-az aks create -g rg-netpol-lab -n aks-netpol-lab --node-count 2 \
-  --network-plugin azure --network-plugin-mode overlay \
-  --network-dataplane cilium --network-policy cilium --generate-ssh-keys
-az aks get-credentials -g rg-netpol-lab -n aks-netpol-lab --overwrite-existing
-```
 
 ---
 
