@@ -1,10 +1,8 @@
- Deploy an Azure Kubernetes Service (AKS) Cluster Using the Azure Portal
+### Deploy an Azure Kubernetes Service (AKS) Cluster Using the Azure Portal
 
 Step-by-step guide to deploy an AKS cluster in the Azure portal, connect to it (Cloud Shell, PowerShell or Azure CLI), and run the sample **AKS Store** multi-container app.
 
 > **Note:** These steps use default settings for **evaluation only**. Before deploying a production cluster, review the AKS baseline reference architecture.
-
-> **Important:** Azure Linux 2.0 is no longer supported (since Nov 30, 2025). From **Oct 31, 2026** its node images are removed and node pools can't be scaled. Use Ubuntu Linux or migrate to `AzureLinux3`.
 
 ---
 
