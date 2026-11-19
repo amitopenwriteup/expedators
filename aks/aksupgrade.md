@@ -1,6 +1,3 @@
-Here is the lab in Markdown with the diagrams removed:
-
-````markdown
 # Lab: Upgrade an AKS Cluster from 1.35.7 to 1.36.5 using Azure Portal
 
 ## Lab Overview
@@ -80,9 +77,3 @@ Here is the lab in Markdown with the diagrams removed:
 4. Go to **Kubernetes resources > Workloads** and confirm all pods are Running.
 5. Check **Kubernetes resources > Services and ingresses** and test your applications.
 
-
-
-
-- [ ] Verified version 1.36.5 on the cluster and all node pools
-- [ ] Confirmed workloads are healthy
-````
