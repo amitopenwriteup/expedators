@@ -51,6 +51,7 @@ A hands-on lab on persistent storage in Azure Kubernetes Service. You will use d
 ## Lab setup
 
 ```bash
+RG=<resource group name>
 kubectl create namespace pvlab
 kubectl create namespace pvlab-tsg
 kubectl get nodes
@@ -153,7 +154,7 @@ Expected: the PVC is `Bound` and a PV named like `pvc-<guid>` exists.
 ### 2.3 Look at the Azure side
 
 ```bash
-az disk list -g $NODE_RG -o table
+az disk list -g $RG -o table
 kubectl describe pv $(kubectl get pvc data-pvc -n pvlab -o jsonpath='{.spec.volumeName}')
 ```
 
@@ -200,7 +201,7 @@ kubectl get pv $PV
 kubectl delete pod disk-pod -n pvlab
 kubectl delete pvc data-pvc -n pvlab
 kubectl get pv $PV
-az disk list -g $NODE_RG -o table
+az disk list -g $RG -o table
 ```
 
 Expected: the PV status is `Released`, and the disk still exists in Azure with your data.
@@ -257,15 +258,6 @@ kubectl wait --for=condition=Ready pod/restore-pod -n pvlab --timeout=180s
 kubectl exec restore-pod -n pvlab -- cat /data/log.txt
 ```
 
-Expected: the earlier lines are still there.
-
-**Checkpoint:** You recovered data after deleting the PVC by using a `Retain` policy.
-
-### Questions
-
-1. When would you choose `Retain` over `Delete` in production?
-2. What is the operational cost of `Retain`? (someone must clean up unused disks)
-
 ---
 
 ## Part 4: Expand a volume
@@ -296,15 +288,8 @@ kubectl delete pod restore-pod -n pvlab
 Also check the Azure disk size:
 
 ```bash
-az disk list -g $NODE_RG --query "[].{name:name,sizeGb:diskSizeGb}" -o table
+az disk list -g $RG --query "[].{name:name,sizeGb:diskSizeGb}" -o table
 ```
-
-**Checkpoint:** The PVC shows `4Gi`, and the file still has its data.
-
-### Questions
-
-1. Can you shrink a PVC? (no, Kubernetes does not support shrinking)
-2. What must the StorageClass allow for expansion to work? (`allowVolumeExpansion: true`)
 
 ---
 
@@ -388,10 +373,6 @@ AKS created a storage account in the node resource group, and a file share insid
 
 **Checkpoint:** Two pods wrote to and read from the same volume.
 
-### Questions
-
-1. Why could you not do this with `managed-csi`? (Azure Disk is RWO, mounted on one node at a time)
-2. What are the trade-offs of Azure Files versus Azure Disk? (shared access versus lower latency and higher IOPS)
 
 ---
 
@@ -568,201 +549,7 @@ kubectl delete pvc -n pvlab -l app=web-ss
 
 ---
 
-## Part 8: Troubleshooting scenarios
 
-Use the `pvlab-tsg` namespace.
-
-### Scenario A: PVC stays Pending
-
-```bash
-cat <<'EOF' | kubectl apply -f -
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: fast-pvc
-  namespace: pvlab-tsg
-spec:
-  accessModes:
-  - ReadWriteOnce
-  storageClassName: fast-ssd
-  resources:
-    requests:
-      storage: 1Gi
-EOF
-
-kubectl get pvc -n pvlab-tsg
-```
-
-**Find it:**
-
-```bash
-kubectl describe pvc fast-pvc -n pvlab-tsg
-kubectl get storageclass
-```
-
-Events show that the storage class `fast-ssd` was not found.
-
-**Solution:** The `storageClassName` of a PVC cannot be changed, so recreate it with a class that exists:
-
-```bash
-kubectl delete pvc fast-pvc -n pvlab-tsg
-cat <<'EOF' | kubectl apply -f -
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: fast-pvc
-  namespace: pvlab-tsg
-spec:
-  accessModes:
-  - ReadWriteOnce
-  storageClassName: managed-csi
-  resources:
-    requests:
-      storage: 1Gi
-EOF
-kubectl get pvc -n pvlab-tsg
-```
-
-(With `WaitForFirstConsumer`, `Pending` is normal until a pod uses it. The difference is that the event no longer reports a missing class.)
-
-### Scenario B: Multi-Attach error with a RWO disk
-
-Two replicas on different nodes try to use the same Azure Disk.
-
-```bash
-cat <<'EOF' | kubectl apply -f -
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: shared-disk
-  namespace: pvlab-tsg
-spec:
-  accessModes:
-  - ReadWriteOnce
-  storageClassName: managed-csi
-  resources:
-    requests:
-      storage: 1Gi
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: disk-sharers
-  namespace: pvlab-tsg
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: disk-sharers
-  template:
-    metadata:
-      labels:
-        app: disk-sharers
-    spec:
-      affinity:
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-          - labelSelector:
-              matchLabels:
-                app: disk-sharers
-            topologyKey: kubernetes.io/hostname
-      containers:
-      - name: app
-        image: busybox:1.36
-        command: ["sh", "-c", "sleep 3600"]
-        volumeMounts:
-        - name: data
-          mountPath: /data
-      volumes:
-      - name: data
-        persistentVolumeClaim:
-          claimName: shared-disk
-EOF
-
-kubectl get pods -n pvlab-tsg -o wide
-```
-
-Expected: one pod `Running`, the other `ContainerCreating` for a long time.
-
-**Find it:**
-
-```bash
-kubectl describe pod -l app=disk-sharers -n pvlab-tsg | grep -A5 Events
-```
-
-Look for `Multi-Attach error ... Volume is already exclusively attached to one node and can't be attached to another`.
-
-**Solution options:** A disk is RWO and can attach to one node. Pick one:
-
-- Use one replica: `kubectl scale deployment disk-sharers -n pvlab-tsg --replicas=1`
-- Give each replica its own disk with a StatefulSet (`volumeClaimTemplates`)
-- Use a shared RWX class such as `azurefile-csi`
-
-Apply the first option and verify:
-
-```bash
-kubectl scale deployment disk-sharers -n pvlab-tsg --replicas=1
-kubectl get pods -n pvlab-tsg
-```
-
-### Scenario C: PVC stuck in Terminating
-
-```bash
-kubectl delete pvc shared-disk -n pvlab-tsg --wait=false
-kubectl get pvc -n pvlab-tsg
-```
-
-Expected: `Terminating` and it stays that way.
-
-**Find it:**
-
-```bash
-kubectl describe pvc shared-disk -n pvlab-tsg
-```
-
-The `Used By` field lists the pod, and the `kubernetes.io/pvc-protection` finalizer prevents deletion while a pod uses the claim.
-
-**Solution:** Remove the workload that uses it:
-
-```bash
-kubectl delete deployment disk-sharers -n pvlab-tsg
-kubectl get pvc -n pvlab-tsg
-```
-
-Expected: the PVC disappears once no pod uses it. Do not remove finalizers by hand except as a last resort.
-
-**Checkpoint:** All three faults are diagnosed and fixed, with the root cause explained.
-
----
-
-## Storage troubleshooting flow
-
-1. `kubectl get pvc,pv -A`: is the PVC `Bound`, `Pending` or `Terminating`?
-2. `kubectl describe pvc <name>`: read the events (missing class, provisioning errors, quota).
-3. `kubectl describe pod <pod>`: look for `FailedMount`, `FailedAttachVolume`, `Multi-Attach`.
-4. Check the access mode and class match your workload (RWO vs RWX).
-5. Check Azure: disk or storage account exists, quota, region, zone, and permissions.
-6. Check expansion: the class allows it, and the pod has reloaded the filesystem.
-
----
-
-## Knowledge check
-
-1. What is the difference between a PV and a PVC?
-2. Why can a PVC be `Pending` even when everything is correct?
-3. What happens to the Azure disk when a PVC with a `Delete` policy is removed? With `Retain`?
-4. Why can two pods on different nodes not share one Azure Disk, and how do you share data instead?
-5. Why do StatefulSet PVCs remain after scaling down?
-6. A PVC will not delete. What do you check first?
-
-**Suggested answers**
-
-1. A PV is the storage resource; a PVC is a request that binds to one.
-2. `WaitForFirstConsumer` delays provisioning until a pod uses the claim.
-3. `Delete` removes the disk; `Retain` keeps the PV (`Released`) and the disk.
-4. A disk attaches to one node at a time (RWO). Use Azure Files (RWX), or one disk per replica.
-5. They protect data for the next scale-up; they must be deleted deliberately.
-6. Whether a pod still uses it (`Used By`, pvc-protection finalizer).
 
 ---
 
