@@ -51,22 +51,6 @@ A hands-on lab on persistent storage in Azure Kubernetes Service. You will use d
 ## Lab setup
 
 ```bash
-RG=aks-pv-lab-rg
-LOCATION=eastus
-CLUSTER=aks-pv-lab
-
-az group create --name $RG --location $LOCATION
-
-az aks create \
-  --resource-group $RG \
-  --name $CLUSTER \
-  --node-count 2 \
-  --node-vm-size Standard_D2s_v5 \
-  --generate-ssh-keys
-
-az aks get-credentials --resource-group $RG --name $CLUSTER --overwrite-existing
-NODE_RG=$(az aks show -g $RG -n $CLUSTER --query nodeResourceGroup -o tsv)
-
 kubectl create namespace pvlab
 kubectl create namespace pvlab-tsg
 kubectl get nodes
