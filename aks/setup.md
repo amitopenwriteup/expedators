@@ -1,4 +1,4 @@
-<img width="821" height="367" alt="image" src="https://github.com/user-attachments/assets/3b5417bb-8742-44ed-a903-4526a494c305" /># Deploy an Azure Kubernetes Service (AKS) Cluster Using the Azure Portal
+ Deploy an Azure Kubernetes Service (AKS) Cluster Using the Azure Portal
 
 Step-by-step guide to deploy an AKS cluster in the Azure portal, connect to it (Cloud Shell, PowerShell or Azure CLI), and run the sample **AKS Store** multi-container app.
 
