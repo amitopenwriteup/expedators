@@ -1,4 +1,4 @@
-Here is the lab in Markdown, based on your screenshots (cluster `k8s-amit`, upgrading from 1.35.7 to 1.36.5):
+Here is the lab in Markdown with the diagrams removed:
 
 ````markdown
 # Lab: Upgrade an AKS Cluster from 1.35.7 to 1.36.5 using Azure Portal
@@ -45,8 +45,6 @@ Here is the lab in Markdown, based on your screenshots (cluster `k8s-amit`, upgr
    - **Fleet Manager:** `None`
    - **AKS pricing tier:** `Free`
 
-![Upgrades page before upgrade](images/image1.png)
-
 ## Step 3: Pre-upgrade checks
 
 1. Open **Overview** and confirm the cluster **Status** is *Succeeded/Running*.
@@ -72,8 +70,6 @@ Here is the lab in Markdown, based on your screenshots (cluster `k8s-amit`, upgr
 4. Open **Activity log** to follow the upgrade operation.
 5. Open **Settings > Node pools** to watch each node pool move to the new version.
 
-![Cluster upgrading](images/image2.png)
-
 > Do not make other changes to the cluster while the upgrade is in progress.
 
 ## Step 6: Verify the upgrade
@@ -84,32 +80,9 @@ Here is the lab in Markdown, based on your screenshots (cluster `k8s-amit`, upgr
 4. Go to **Kubernetes resources > Workloads** and confirm all pods are Running.
 5. Check **Kubernetes resources > Services and ingresses** and test your applications.
 
-## Step 7: Post-upgrade tasks (optional)
 
-- **Update the node image** under **Node pools > (select pool) > Update node image**.
-- **Enable long-term support (LTS)** from the checkbox on the Upgrades page if you need extended support (this requires the Premium tier).
-- **Set a maintenance window** under **Settings > Maintenance** so future upgrades run at a planned time.
-- Keep the **Automatic upgrade type** as `Patch` so the cluster receives patch releases automatically.
 
-## Troubleshooting
 
-| Issue | Possible cause | Fix |
-|---|---|---|
-| Upgrade fails to start | Version skipped or not available in region | Pick the next minor version from the list |
-| Upgrade stuck on node drain | PodDisruptionBudget blocks eviction | Relax the PDB or scale up replicas |
-| Surge node creation fails | vCPU quota or subnet IP shortage | Increase quota or free IPs, then retry |
-| Pods failing after upgrade | Removed or deprecated APIs | Check the changelog and update manifests |
-
-> AKS does not support downgrading. If the upgrade fails, check the **Activity log**, fix the cause, and retry.
-
-## Lab Completion Checklist
-
-- [ ] Verified starting version 1.35.7
-- [ ] Completed pre-upgrade checks
-- [ ] Started the upgrade to 1.36.5
-- [ ] Monitored until "This cluster is upgrading..." cleared
 - [ ] Verified version 1.36.5 on the cluster and all node pools
 - [ ] Confirmed workloads are healthy
 ````
-
-Save your two screenshots in an `images/` folder, named `image1.png` and `image2.png`, so the image links in the lab work.
