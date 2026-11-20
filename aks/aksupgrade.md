@@ -1,4 +1,4 @@
-# Lab: Upgrade an AKS Cluster from 1.35.7 to 1.36.5 using Azure Portal
+# Lab: Upgrade an AKS Cluster from 1.35.7 to 1.36.2 using Azure Portal
 
 ## Lab Overview
 
@@ -6,7 +6,7 @@
 |---|---|
 | Cluster name | `k8s-amit` |
 | Current version | 1.35.7 |
-| Target version | 1.36.5 |
+| Target version | 1.36.2 |
 | Upgrade type | Minor version upgrade (1.35 -> 1.36) |
 | Automatic upgrade type | Patch |
 | AKS pricing tier | Free |
