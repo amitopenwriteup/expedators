@@ -1,123 +1,162 @@
-# Lab 1: Install the agent on vm2 and sign its certificate
+# Lab 2: Resources and idempotency (puppet apply)
 
-Needs: Lab 0 complete. Each step says which VM to use.
+No server is involved here. Run everything on **vm2**.
 
-## Step 1 (vm2): Make vm-1 resolvable
+A resource describes desired state: what should exist and how.
 
-On `vm-1` you noted its IP. On `vm2`:
-
-```bash
-sudo vi /etc/hosts
-```
-
-Press `G` then `o` to open a new line at the end, and type this line, using the IP of vm-1:
-
-```text
-10.0.0.2 vm-1 puppet
-```
-
-Press `Esc`, type `:wq`, press `Enter`.
-
-## Step 2 (vm2): Test the network
+## Step 1: Inspect the system
 
 ```bash
-ping -c 2 vm-1
-nc -zv vm-1 8140
+sudo puppet resource service cron
+sudo puppet resource package tree
+sudo puppet resource user root
 ```
 
-Expected: the port test succeeds. If it fails, open TCP 8140 in your VPC or host firewall. If `nc` is missing: `sudo apt-get install -y netcat-openbsd`.
-
-## Step 3 (vm2): Download the release package
-
-Use the same file name you used on vm-1:
+## Step 2: Create a work folder
 
 ```bash
-wget --content-disposition https://apt-puppetcore.puppet.com/public/puppet9-release-noble.deb
+mkdir ~/puppet-lab
+cd ~/puppet-lab
 ```
 
-## Step 4 (vm2): Install the release package
+## Step 3: Write a manifest with one file resource
 
 ```bash
-sudo dpkg -i puppet9-release-noble.deb
+vi hello.pp
 ```
 
-## Step 5 (vm2): Add your API key
+File content:
 
-Use the same key you created in Lab 0, Step 1 (Forge profile, **API Keys**).
+```puppet
+file { '/tmp/hello.txt':
+  ensure  => file,
+  content => "Hello from Puppet\n",
+  mode    => '0644',
+}
+```
+
+## Step 4: Check the syntax
 
 ```bash
-sudo vi /etc/apt/auth.conf.d/apt-puppetcore-puppet.conf
+puppet parser validate hello.pp
 ```
 
-Contents (replace only `YOUR_API_KEY`):
+No output means the syntax is fine.
 
-```text
-machine apt-puppetcore.puppet.com
-login forge-key
-password YOUR_API_KEY
+## Step 5: Apply it
+
+```bash
+sudo puppet apply hello.pp
+cat /tmp/hello.txt
+```
+
+Expected: a notice that the file content was defined, and the text in the file.
+
+## Step 6: Apply again
+
+```bash
+sudo puppet apply hello.pp
+```
+
+Expected: **no changes**. Puppet acts only when reality differs from the code. This is idempotency.
+
+## Step 7: Break the file by hand
+
+```bash
+sudo vi /tmp/hello.txt
+```
+
+Press `i`, delete the text and type `tampered`. Press `Esc`, type `:wq`, press `Enter`.
+
+## Step 8: Preview the repair
+
+```bash
+sudo puppet apply hello.pp --noop
+```
+
+Expected: it says it would change the file. Nothing is changed yet. Check:
+
+```bash
+cat /tmp/hello.txt
+```
+
+## Step 9: Repair
+
+```bash
+sudo puppet apply hello.pp
+cat /tmp/hello.txt
+```
+
+The original text is back.
+
+## Step 10: Package, file, service
+
+```bash
+vi web.pp
+```
+
+File content:
+
+```puppet
+package { 'nginx':
+  ensure => installed,
+}
+
+file { '/var/www/html/index.nginx-debian.html':
+  ensure  => file,
+  content => "Managed by Puppet\n",
+  require => Package['nginx'],
+}
+
+service { 'nginx':
+  ensure    => running,
+  enable    => true,
+  subscribe => File['/var/www/html/index.nginx-debian.html'],
+}
 ```
 
 ```bash
-sudo chmod 600 /etc/apt/auth.conf.d/apt-puppetcore-puppet.conf
-sudo apt-get update
+puppet parser validate web.pp
+sudo puppet apply web.pp
+curl http://localhost/
 ```
 
-## Step 6 (vm2): Install the agent
+Expected: the page says `Managed by Puppet`.
+
+| Keyword | Meaning |
+|---|---|
+| `require` | Apply the other resource first |
+| `subscribe` | Refresh or restart when the other resource changes |
+
+## Step 11: Use a fact
 
 ```bash
-sudo apt-get install -y puppet-agent
-sudo ln -s /opt/puppetlabs/bin/puppet /usr/local/bin/puppet
-sudo ln -s /opt/puppetlabs/bin/facter /usr/local/bin/facter
-puppet --version
-```
-
-## Step 7 (vm2): Point the agent at the server
-
-```bash
-sudo puppet config set server vm-1 --section main
-sudo puppet config set certname vm2 --section main
-cat /etc/puppetlabs/puppet/puppet.conf
-```
-
-## Step 8 (vm2): First run
-
-```bash
-sudo puppet agent -t
-```
-
-Expected: the agent says its certificate is not signed yet. This is normal.
-
-## Step 9 (vm-1): Sign the certificate
-
-```bash
-sudo puppetserver ca list
-sudo puppetserver ca sign --certname vm2
-sudo puppetserver ca list --all
-```
-
-`vm2` is now listed as signed.
-
-## Step 10 (vm2): Second run
-
-```bash
-sudo puppet agent -t
-```
-
-Expected: `Caching catalog for vm2` and `Applied catalog`. There is no code yet, so nothing changes.
-
-## Step 11 (vm2): Look at facts
-
-```bash
-facter os
 facter networking.hostname
-facter memory.system.total
+vi fact.pp
 ```
 
-Facts are the data the server uses to build the catalog for this node.
+File content:
 
-## Done when
+```puppet
+notice("This node is ${facts['networking']['hostname']}")
+```
 
-- [ ] `vm2` is signed on the server
-- [ ] `sudo puppet agent -t` on vm2 ends with `Applied catalog`
+```bash
+sudo puppet apply fact.pp
+```
 
-Next: `lab2.md`.
+## Step 12: Clean up
+
+```bash
+sudo systemctl stop nginx
+sudo apt-get remove -y nginx
+sudo rm /tmp/hello.txt
+```
+
+## Key ideas
+
+- A manifest describes the end state, not the steps.
+- Running it again is safe.
+- Always run `puppet parser validate` first and `--noop` to preview.
+
+Next: `lab3.md`.
