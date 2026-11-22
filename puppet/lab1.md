@@ -71,12 +71,24 @@ sudo ln -s /opt/puppetlabs/bin/facter /usr/local/bin/facter
 puppet --version
 ```
 
+Check that you are using the new agent, not an older Puppet package:
+
+```bash
+which -a puppet
+```
+
+Expected: `/opt/puppetlabs/bin/puppet` and version 9.x. If an older version shows, remove it:
+
+```bash
+sudo apt-get remove -y puppet
+```
+
 ## Step 7 (vm2): Point the agent at the server
 
 ```bash
 sudo puppet config set server vm-1 --section main
 sudo puppet config set certname vm2 --section main
-cat /etc/puppet/puppet.conf
+cat /etc/puppetlabs/puppet/puppet.conf
 ```
 
 ## Step 8 (vm2): First run
@@ -87,7 +99,11 @@ sudo puppet agent -t
 
 Expected: the agent says its certificate is not signed yet. This is normal.
 
+Note the certificate fingerprint printed here. Leave this terminal open and go to `vm-1` for Step 9.
+
 ## Step 9 (vm-1): Sign the certificate
+
+Run these on **vm-1**, not vm2:
 
 ```bash
 sudo puppetserver ca list
@@ -95,7 +111,17 @@ sudo puppetserver ca sign --certname vm2
 sudo puppetserver ca list --all
 ```
 
-`vm2` is now listed as signed.
+- `sudo puppetserver ca list` shows `vm2` under "Requested Certificates". Check that its fingerprint matches the one printed on vm2 in Step 8.
+- `sudo puppetserver ca sign --certname vm2` signs the request.
+- `sudo puppetserver ca list --all` shows `vm2` as signed.
+
+If `vm2` is not listed, the request is not reaching vm-1. On vm2, run:
+
+```bash
+sudo puppet agent --configprint server
+getent hosts vm-1
+nc -zv vm-1 8140
+```
 
 ## Step 10 (vm2): Second run
 
