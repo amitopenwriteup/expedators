@@ -7,7 +7,7 @@ Edit on vm-1, run the agent on vm2.
 ## Step 1 (vm-1): Go to the code folder
 
 ```bash
-cd /etc/puppetlabs/code/environments/production
+cd /etc/puppet/code/environments/production
 ```
 
 ## Step 2 (vm-1): Create the data folders
