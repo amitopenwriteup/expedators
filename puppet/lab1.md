@@ -76,7 +76,7 @@ puppet --version
 ```bash
 sudo puppet config set server vm-1 --section main
 sudo puppet config set certname vm2 --section main
-cat /etc/puppetlabs/puppet/puppet.conf
+cat /etc/puppet/puppet.conf
 ```
 
 ## Step 8 (vm2): First run
