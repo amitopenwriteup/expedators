@@ -1,6 +1,6 @@
-# Upgrade Kubernetes 1.32 to 1.33 (with backup)
+# Upgrade Kubernetes 1.32 to 1.33 on Rocky Linux (with backup)
 
-Assumptions (change if they differ): control plane node is `master`, the worker is `worker1` (use the real name from `kubectl get nodes`). Target is **v1.33.x** (newest patch). Ubuntu/Debian, containerd, repo `pkgs.k8s.io`. You are logged in as root on master, so `sudo` is optional there.
+Assumptions (change if they differ): control plane node is `master`, the worker is `worker1` (use the real name from `kubectl get nodes`). Target is **v1.33.x** (newest patch). **Rocky Linux 8/9**, containerd, repo `pkgs.k8s.io` (RPM), package manager `dnf`. You are logged in as root on master, so `sudo` is optional there.
 
 Order: **backup, control plane (master), then worker (worker1)**. Run each command on its own, and do not paste the `<` `>` characters from examples.
 
@@ -17,15 +17,26 @@ kubectl get nodes -o wide
 kubectl get pods -A | grep -v Running | grep -v Completed
 sudo kubeadm certs check-expiration
 swapon --show
+getenforce
+sudo firewall-cmd --state
 kubectl get pdb -A
-cat /etc/apt/sources.list.d/kubernetes.list
+cat /etc/yum.repos.d/kubernetes.repo
 kubelet --version
 kubectl version
+cat /etc/os-release | head -3
 ```
 
-Expected: all nodes `Ready`, no failing pods, `swapon --show` prints nothing, repo file contains `v1.32`, and kubelet shows `v1.32.x`.
+Expected: all nodes `Ready`, no failing pods, `swapon --show` prints nothing, repo file contains `v1.32` and an `exclude=` line, and kubelet shows `v1.32.x`.
+
+`getenforce` should print `Permissive` (the usual kubeadm setup) or `Disabled`. If your cluster runs with SELinux `Enforcing` and works today, leave it as is. If `firewalld` is running, the Kubernetes ports (6443, 2379-2380, 10250, 10257, 10259 on master; 10250 and 30000-32767 on workers) must already be open. The upgrade does not change them.
 
 Also check that your CNI plugin and containerd version support Kubernetes 1.33, and skim the 1.33 release notes for deprecations that affect your workloads.
+
+Make sure the tools used below exist (minimal Rocky installs may lack them):
+
+```bash
+sudo dnf install -y tar curl openssh-clients
+```
 
 ---
 
@@ -43,9 +54,9 @@ ls -ld $BK
 
 The folder must be listed. If not, stop and fix this first.
 
-### 2.2 Install etcdctl and etcdutl (Ubuntu)
+### 2.2 Install etcdctl and etcdutl
 
-The snapshot needs the `etcdctl` and `etcdutl` tools, which kubeadm does not install. Skip this step if `which etcdctl etcdutl` already prints both paths.
+The snapshot needs the `etcdctl` and `etcdutl` tools, which kubeadm does not install and Rocky does not package. Skip this step if `which etcdctl etcdutl` already prints both paths.
 
 First find the etcd version your cluster runs:
 
@@ -75,7 +86,7 @@ etcdctl version
 etcdutl version
 ```
 
-Both should print the version you set.
+Both should print the version you set. If you get `command not found` under sudo, run them as `sudo /usr/local/bin/etcdctl ...`.
 
 ### 2.3 etcd snapshot
 
@@ -106,6 +117,7 @@ Copy the config and certificate files so you can repair the node if needed.
 ```bash
 sudo tar czf $BK/etc-kubernetes.tgz /etc/kubernetes
 sudo tar czf $BK/var-lib-kubelet.tgz /var/lib/kubelet/config.yaml /var/lib/kubelet/kubeadm-flags.env
+sudo cp /etc/yum.repos.d/kubernetes.repo $BK/kubernetes.repo.bak
 ```
 
 ### 2.5 kubeadm and kubelet configuration
@@ -136,7 +148,7 @@ Note the installed versions for reference.
 
 ```bash
 { kubeadm version -o short; kubelet --version; kubectl version --client; containerd --version; } > $BK/versions.txt
-dpkg -l | grep -E 'kubeadm|kubelet|kubectl|containerd' >> $BK/versions.txt
+rpm -qa | grep -E 'kubeadm|kubelet|kubectl|containerd|cri-tools|kubernetes-cni' >> $BK/versions.txt
 ```
 
 ### 2.8 Copy the backup off the node
@@ -158,13 +170,31 @@ Persistent volume data is not in the etcd snapshot. Back it up separately if you
 
 ### 3.1 Set the hop and switch the repository
 
-Point apt at the 1.33 repository.
+Point dnf at the 1.33 repository. The `exclude=` line in the repo file stays in place: it keeps the Kubernetes packages from being upgraded by an ordinary `dnf update`.
 
 ```bash
 export OLD=1.32
 export NEW=1.33
-sudo sed -i "s/v$OLD/v$NEW/g" /etc/apt/sources.list.d/kubernetes.list
-sudo apt-get update
+sudo sed -i "s/v$OLD/v$NEW/g" /etc/yum.repos.d/kubernetes.repo
+sudo dnf clean all
+sudo dnf makecache
+grep -E 'baseurl|gpgkey|exclude' /etc/yum.repos.d/kubernetes.repo
+```
+
+The `baseurl` and `gpgkey` lines must now say `v1.33`, and `exclude=kubelet kubeadm kubectl cri-tools kubernetes-cni` must still be there. If the file has no `exclude=` line, add it, otherwise a later `dnf update` could upgrade the cluster by accident.
+
+If your repo file does not exist at all, create it:
+
+```bash
+cat <<'REPO' | sudo tee /etc/yum.repos.d/kubernetes.repo
+[kubernetes]
+name=Kubernetes
+baseurl=https://pkgs.k8s.io/core:/stable:/v1.33/rpm/
+enabled=1
+gpgcheck=1
+gpgkey=https://pkgs.k8s.io/core:/stable:/v1.33/rpm/repodata/repomd.xml.key
+exclude=kubelet kubeadm kubectl cri-tools kubernetes-cni
+REPO
 ```
 
 ### 3.2 Pick the newest 1.33 patch
@@ -172,20 +202,18 @@ sudo apt-get update
 Find the newest 1.33 patch version and store it in `VER`.
 
 ```bash
-export VER=$(apt-cache madison kubeadm | grep "$NEW\." | head -1 | awk '{print $3}')
+export VER=$(dnf list --showduplicates kubeadm --disableexcludes=kubernetes | grep "$NEW\." | tail -1 | awk '{print $2}')
 echo $VER
 ```
 
-It should print something like `1.33.x-1.1`. Write it down: the worker must use the **same** version. If it prints nothing, check the repo file.
+It should print something like `1.33.x-150500.1.1`. Write it down: the worker must use the **same** version. If it prints nothing, check the repo file and run `dnf makecache` again.
 
 ### 3.3 Upgrade kubeadm
 
 Install the new kubeadm first, since it performs the upgrade.
 
 ```bash
-sudo apt-mark unhold kubeadm
-sudo apt-get install -y kubeadm=$VER
-sudo apt-mark hold kubeadm
+sudo dnf install -y kubeadm-$VER --disableexcludes=kubernetes
 kubeadm version -o short
 ```
 
@@ -220,9 +248,7 @@ kubectl drain master --ignore-daemonsets --delete-emptydir-data
 Install the new kubelet and kubectl, then restart kubelet.
 
 ```bash
-sudo apt-mark unhold kubelet kubectl
-sudo apt-get install -y kubelet=$VER kubectl=$VER
-sudo apt-mark hold kubelet kubectl
+sudo dnf install -y kubelet-$VER kubectl-$VER --disableexcludes=kubernetes
 sudo systemctl daemon-reload
 sudo systemctl restart kubelet
 ```
@@ -258,22 +284,22 @@ Point the worker at the 1.33 repository and use the same `VER` as master.
 ```bash
 export OLD=1.32
 export NEW=1.33
-sudo sed -i "s/v$OLD/v$NEW/g" /etc/apt/sources.list.d/kubernetes.list
-sudo apt-get update
-export VER=$(apt-cache madison kubeadm | grep "$NEW\." | head -1 | awk '{print $3}')
+sudo sed -i "s/v$OLD/v$NEW/g" /etc/yum.repos.d/kubernetes.repo
+sudo dnf clean all
+sudo dnf makecache
+grep -E 'baseurl|gpgkey|exclude' /etc/yum.repos.d/kubernetes.repo
+export VER=$(dnf list --showduplicates kubeadm --disableexcludes=kubernetes | grep "$NEW\." | tail -1 | awk '{print $2}')
 echo $VER
 ```
 
-`VER` must be the same as on master. If it is newer, set it by hand, for example `export VER=1.33.x-1.1`.
+`VER` must be the same as on master. If it is newer, set it by hand, for example `export VER=1.33.x-150500.1.1`.
 
 ### 4.3 On the worker: upgrade kubeadm and node config
 
 Install the new kubeadm and update the worker's node configuration.
 
 ```bash
-sudo apt-mark unhold kubeadm
-sudo apt-get install -y kubeadm=$VER
-sudo apt-mark hold kubeadm
+sudo dnf install -y kubeadm-$VER --disableexcludes=kubernetes
 sudo kubeadm upgrade node
 ```
 
@@ -282,9 +308,7 @@ sudo kubeadm upgrade node
 Install the new kubelet and kubectl, then restart kubelet.
 
 ```bash
-sudo apt-mark unhold kubelet kubectl
-sudo apt-get install -y kubelet=$VER kubectl=$VER
-sudo apt-mark hold kubelet kubectl
+sudo dnf install -y kubelet-$VER kubectl-$VER --disableexcludes=kubernetes
 sudo systemctl daemon-reload
 sudo systemctl restart kubelet
 ```
@@ -309,6 +333,7 @@ kubectl get nodes -o wide
 kubectl get pods -A
 kubectl get --raw='/readyz?verbose' | tail -5
 sudo kubeadm certs check-expiration
+rpm -qa | grep -E 'kubeadm|kubelet|kubectl'
 ```
 
 - Both nodes `Ready` and on `v1.33.x`.
@@ -333,13 +358,20 @@ Logs:
 sudo systemctl status kubelet
 sudo journalctl -xeu kubelet --no-pager | tail -50
 sudo crictl ps -a | grep -E 'apiserver|etcd|controller|scheduler'
+sudo ausearch -m avc -ts recent
 ```
 
-kubeadm's own backups are in `/etc/kubernetes/tmp/`.
+The last command shows recent SELinux denials, in case SELinux is `Enforcing` and blocks something. kubeadm's own backups are in `/etc/kubernetes/tmp/`.
 
 ### Restore etcd from your snapshot (master)
 
-Kubernetes does not support downgrading. Restore from the backup taken before the hop and reinstall the old package versions (`apt-get install kubeadm=<old> kubelet=<old> kubectl=<old>`).
+Kubernetes does not support downgrading. Restore from the backup taken before the hop and reinstall the old package versions. Restore the old repo file first (`sudo cp $BK/kubernetes.repo.bak /etc/yum.repos.d/kubernetes.repo`, then `sudo dnf clean all`), then:
+
+```bash
+sudo dnf downgrade -y kubeadm-<old> kubelet-<old> kubectl-<old> --disableexcludes=kubernetes
+```
+
+Replace `<old>` with the version recorded in `$BK/versions.txt` (without the `<` `>` characters). Then restore etcd:
 
 ```bash
 sudo mkdir -p /root/manifests-stash
@@ -351,14 +383,18 @@ Wait until `sudo crictl ps` shows no apiserver or etcd container, then:
 ```bash
 sudo mv /var/lib/etcd /var/lib/etcd.broken
 sudo etcdutl snapshot restore $BK/etcd-snapshot.db --data-dir /var/lib/etcd
+sudo restorecon -Rv /var/lib/etcd
 sudo mv /root/manifests-stash/*.yaml /etc/kubernetes/manifests/
 sudo systemctl restart kubelet
 kubectl get nodes
 ```
 
+(`restorecon` fixes SELinux labels on the restored data directory; it is harmless if SELinux is off.)
+
 Restore `/etc/kubernetes` only if files were damaged:
 
 ```bash
 sudo tar xzf $BK/etc-kubernetes.tgz -C /
+sudo restorecon -Rv /etc/kubernetes
 sudo systemctl restart kubelet
 ```
