@@ -76,7 +76,7 @@ Download the release and copy the two tools to `/usr/local/bin` (this is for amd
 cd /tmp
 curl -LO https://github.com/etcd-io/etcd/releases/download/${ETCD_VER}/etcd-${ETCD_VER}-linux-amd64.tar.gz
 tar xzf etcd-${ETCD_VER}-linux-amd64.tar.gz
-sudo mv etcd-${ETCD_VER}-linux-amd64/etcdctl etcd-${ETCD_VER}-linux-amd64/etcdutl /usr/local/bin/
+sudo mv etcd-${ETCD_VER}-linux-amd64/etcdctl etcd-${ETCD_VER}-linux-amd64/etcdutl /bin/
 ```
 
 Verify:
