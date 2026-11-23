@@ -5,7 +5,6 @@ Strimzi 1.x (`kafka.strimzi.io/v1`). Namespace `mm2-demo`. Source cluster uses y
 ## Step 0: Prepare the terminal
 
 ```bash
-bind 'set enable-bracketed-paste off'
 mkdir -p ~/mm2-lab && cd ~/mm2-lab
 ```
 
