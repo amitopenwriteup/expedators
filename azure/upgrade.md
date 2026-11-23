@@ -1,19 +1,16 @@
-# Upgrade Kubernetes 1.30 to 1.31 (with backup)
+# Upgrade Kubernetes 1.32 to 1.33 (with backup)
 
-Cluster:
+Assumptions (change if they differ): control plane node is `master`, the worker is `worker1` (use the real name from `kubectl get nodes`). Target is **v1.33.x** (newest patch). Ubuntu/Debian, containerd, repo `pkgs.k8s.io`. You are logged in as root on master, so `sudo` is optional there.
 
-| Node | Role | Version |
-|---|---|---|
-| `vm-1` | control plane | v1.30.14 |
-| `vm2` | worker | v1.30.14 |
+Order: **backup, control plane (master), then worker (worker1)**. Run each command on its own, and do not paste the `<` `>` characters from examples.
 
-Target: **v1.31.x** (newest patch). Ubuntu/Debian, containerd, repo `pkgs.k8s.io`.
-
-Order: **backup, control plane (vm-1), then worker (vm2)**. Run each command on its own, and do not paste the `<` `>` characters from examples.
+Kubernetes only allows upgrading one minor version at a time, so 1.32 to 1.33 is correct. Do not skip to 1.34.
 
 ---
 
-## Step 1: Pre-checks (on vm-1)
+## Step 1: Pre-checks (on master)
+
+Check the cluster is healthy before you change anything.
 
 ```bash
 kubectl get nodes -o wide
@@ -22,17 +19,21 @@ sudo kubeadm certs check-expiration
 swapon --show
 kubectl get pdb -A
 cat /etc/apt/sources.list.d/kubernetes.list
+kubelet --version
+kubectl version
 ```
 
-Expected: both nodes `Ready`, no failing pods, `swapon --show` prints nothing, repo file contains `v1.30`.
+Expected: all nodes `Ready`, no failing pods, `swapon --show` prints nothing, repo file contains `v1.32`, and kubelet shows `v1.32.x`.
 
-Also check that your CNI plugin and containerd version support Kubernetes 1.31.
+Also check that your CNI plugin and containerd version support Kubernetes 1.33, and skim the 1.33 release notes for deprecations that affect your workloads.
 
 ---
 
-## Step 2: Backup (on vm-1)
+## Step 2: Backup (on master)
 
 ### 2.1 Create the backup folder
+
+Make a folder to hold all backup files.
 
 ```bash
 export BK=/backup/$(date +%F-%H%M)
@@ -44,7 +45,9 @@ The folder must be listed. If not, stop and fix this first.
 
 ### 2.2 etcd snapshot
 
-You already have `etcdctl` and `etcdutl` in `/usr/local/bin`.
+Save a snapshot of etcd, the database that stores the whole cluster state.
+
+You need `etcdctl` and `etcdutl` in `/usr/local/bin`. Check with `which etcdctl etcdutl`.
 
 ```bash
 sudo ETCDCTL_API=3 etcdctl \
@@ -66,12 +69,16 @@ You should see a file of a few MB and a table with hash, revision, total keys an
 
 ### 2.3 Cluster files
 
+Copy the config and certificate files so you can repair the node if needed.
+
 ```bash
 sudo tar czf $BK/etc-kubernetes.tgz /etc/kubernetes
 sudo tar czf $BK/var-lib-kubelet.tgz /var/lib/kubelet/config.yaml /var/lib/kubelet/kubeadm-flags.env
 ```
 
 ### 2.4 kubeadm and kubelet configuration
+
+Save the settings kubeadm and kubelet keep inside the cluster.
 
 ```bash
 kubectl -n kube-system get cm kubeadm-config -o yaml > $BK/kubeadm-config.yaml
@@ -80,6 +87,8 @@ kubectl -n kube-system get cm kube-proxy -o yaml > $BK/kube-proxy-cm.yaml
 ```
 
 ### 2.5 Workload definitions (contains Secrets, protect the files)
+
+Export your apps and their settings as YAML files.
 
 ```bash
 kubectl get ns -o yaml > $BK/namespaces.yaml
@@ -91,12 +100,16 @@ kubectl get clusterrole,clusterrolebinding,crd,sc -o yaml > $BK/cluster-scoped.y
 
 ### 2.6 Record versions
 
+Note the installed versions for reference.
+
 ```bash
 { kubeadm version -o short; kubelet --version; kubectl version --client; containerd --version; } > $BK/versions.txt
 dpkg -l | grep -E 'kubeadm|kubelet|kubectl|containerd' >> $BK/versions.txt
 ```
 
 ### 2.7 Copy the backup off the node
+
+Keep a copy off this node so a node failure cannot lose your backup.
 
 ```bash
 sudo chown -R $USER $BK
@@ -109,27 +122,33 @@ Persistent volume data is not in the etcd snapshot. Back it up separately if you
 
 ---
 
-## Step 3: Upgrade the control plane (on vm-1)
+## Step 3: Upgrade the control plane (on master)
 
 ### 3.1 Set the hop and switch the repository
 
+Point apt at the 1.33 repository.
+
 ```bash
-export OLD=1.30
-export NEW=1.31
+export OLD=1.32
+export NEW=1.33
 sudo sed -i "s/v$OLD/v$NEW/g" /etc/apt/sources.list.d/kubernetes.list
 sudo apt-get update
 ```
 
-### 3.2 Pick the newest 1.31 patch
+### 3.2 Pick the newest 1.33 patch
+
+Find the newest 1.33 patch version and store it in `VER`.
 
 ```bash
 export VER=$(apt-cache madison kubeadm | grep "$NEW\." | head -1 | awk '{print $3}')
 echo $VER
 ```
 
-It should print something like `1.31.x-1.1`. Write it down: vm2 must use the **same** version. If it prints nothing, check the repo file.
+It should print something like `1.33.x-1.1`. Write it down: the worker must use the **same** version. If it prints nothing, check the repo file.
 
 ### 3.3 Upgrade kubeadm
+
+Install the new kubeadm first, since it performs the upgrade.
 
 ```bash
 sudo apt-mark unhold kubeadm
@@ -140,11 +159,15 @@ kubeadm version -o short
 
 ### 3.4 Check the plan
 
+Preview what the upgrade will change.
+
 ```bash
 sudo kubeadm upgrade plan
 ```
 
 ### 3.5 Apply the upgrade
+
+Upgrade the control plane components (API server, scheduler, controller manager, etcd).
 
 ```bash
 sudo kubeadm upgrade apply v${VER%-*}
@@ -152,13 +175,17 @@ sudo kubeadm upgrade apply v${VER%-*}
 
 Wait for `[upgrade/successful] SUCCESS! Your cluster was upgraded`.
 
-### 3.6 Drain vm-1
+### 3.6 Drain master
+
+Move workloads off master so kubelet can be upgraded safely.
 
 ```bash
-kubectl drain vm-1 --ignore-daemonsets --delete-emptydir-data
+kubectl drain master --ignore-daemonsets --delete-emptydir-data
 ```
 
 ### 3.7 Upgrade kubelet and kubectl
+
+Install the new kubelet and kubectl, then restart kubelet.
 
 ```bash
 sudo apt-mark unhold kubelet kubectl
@@ -170,38 +197,46 @@ sudo systemctl restart kubelet
 
 ### 3.8 Uncordon and check
 
+Allow pods back on master and confirm it shows the new version.
+
 ```bash
-kubectl uncordon vm-1
+kubectl uncordon master
 kubectl get nodes
 kubectl get pods -n kube-system
 ```
 
-Expected: `vm-1` is `Ready` and shows `v1.31.x`. `vm2` still shows `v1.30.14`, which is allowed.
+Expected: `master` is `Ready` and shows `v1.33.x`. The worker still shows `v1.32.x`, which is allowed.
 
 ---
 
-## Step 4: Upgrade the worker (vm2)
+## Step 4: Upgrade the worker (worker1)
 
-### 4.1 Drain vm2 (run on vm-1)
+### 4.1 Drain the worker (run on master)
+
+Move workloads off the worker.
 
 ```bash
-kubectl drain vm2 --ignore-daemonsets --delete-emptydir-data
+kubectl drain worker1 --ignore-daemonsets --delete-emptydir-data
 ```
 
-### 4.2 On vm2: switch the repository and pick the version
+### 4.2 On the worker: switch the repository and pick the version
+
+Point the worker at the 1.33 repository and use the same `VER` as master.
 
 ```bash
-export OLD=1.30
-export NEW=1.31
+export OLD=1.32
+export NEW=1.33
 sudo sed -i "s/v$OLD/v$NEW/g" /etc/apt/sources.list.d/kubernetes.list
 sudo apt-get update
 export VER=$(apt-cache madison kubeadm | grep "$NEW\." | head -1 | awk '{print $3}')
 echo $VER
 ```
 
-`VER` must be the same as on vm-1. If it is newer, set it by hand, for example `export VER=1.31.x-1.1`.
+`VER` must be the same as on master. If it is newer, set it by hand, for example `export VER=1.33.x-1.1`.
 
-### 4.3 On vm2: upgrade kubeadm and node config
+### 4.3 On the worker: upgrade kubeadm and node config
+
+Install the new kubeadm and update the worker's node configuration.
 
 ```bash
 sudo apt-mark unhold kubeadm
@@ -210,7 +245,9 @@ sudo apt-mark hold kubeadm
 sudo kubeadm upgrade node
 ```
 
-### 4.4 On vm2: upgrade kubelet and kubectl
+### 4.4 On the worker: upgrade kubelet and kubectl
+
+Install the new kubelet and kubectl, then restart kubelet.
 
 ```bash
 sudo apt-mark unhold kubelet kubectl
@@ -220,16 +257,20 @@ sudo systemctl daemon-reload
 sudo systemctl restart kubelet
 ```
 
-### 4.5 Uncordon (run on vm-1)
+### 4.5 Uncordon (run on master)
+
+Let pods run on the worker again.
 
 ```bash
-kubectl uncordon vm2
+kubectl uncordon worker1
 kubectl get nodes
 ```
 
 ---
 
-## Step 5: Verify (on vm-1)
+## Step 5: Verify (on master)
+
+Confirm the whole cluster is healthy on 1.33.
 
 ```bash
 kubectl get nodes -o wide
@@ -238,11 +279,11 @@ kubectl get --raw='/readyz?verbose' | tail -5
 sudo kubeadm certs check-expiration
 ```
 
-- Both nodes `Ready` and on `v1.31.x`.
+- Both nodes `Ready` and on `v1.33.x`.
 - Everything in `kube-system` is `Running`.
 - Your applications are healthy.
 
-Next hop (1.31 to 1.32): go back to Step 2 for a **new backup**, then repeat Steps 3 and 4 with `OLD=1.31` and `NEW=1.32`.
+Next hop (1.33 to 1.34): go back to Step 2 for a **new backup**, then repeat Steps 3 and 4 with `OLD=1.33` and `NEW=1.34`.
 
 ---
 
@@ -264,7 +305,7 @@ sudo crictl ps -a | grep -E 'apiserver|etcd|controller|scheduler'
 
 kubeadm's own backups are in `/etc/kubernetes/tmp/`.
 
-### Restore etcd from your snapshot (vm-1)
+### Restore etcd from your snapshot (master)
 
 Kubernetes does not support downgrading. Restore from the backup taken before the hop and reinstall the old package versions (`apt-get install kubeadm=<old> kubelet=<old> kubectl=<old>`).
 
