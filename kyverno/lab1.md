@@ -78,11 +78,6 @@ kubectl delete pod free-pod
 
 Expected: allowed, because the policy only matches `quick-start-validation`.
 
-## 1.6 Try yourself
-
-- Change `Deny` to `Audit` and recreate the Deployment (see Lab 5).
-- Require the label value to be one of `backend`, `frontend`, `data` using `object.metadata.labels.team in ['backend','frontend','data']`.
-
 ## Cleanup
 
 ```bash
