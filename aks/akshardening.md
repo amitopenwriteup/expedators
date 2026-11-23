@@ -1,11 +1,11 @@
-# AKS Pod Security Standards Lab (Pod Security Admission)
+# k8s Pod Security Standards Lab (Pod Security Admission)
 
 | | |
 |---|---|
 | **Format** | Hands-on lab, Azure portal (Run command and Apply YAML) |
 | **Duration** | 60 to 75 minutes |
 | **Level** | Intermediate |
-| **Starting point** | An existing, healthy AKS cluster |
+| **Starting point** | An existing, healthy k8 cluster |
 | **Cost** | No extra cost beyond the running cluster |
 
 > **PSP vs PSS:** The old **PodSecurityPolicy (PSP)** was removed from Kubernetes in v1.25 and is not available on current AKS versions. Its replacement is **Pod Security Standards (PSS)**, enforced by the built-in **Pod Security Admission (PSA)** controller. This lab covers PSS and PSA.
@@ -55,13 +55,7 @@ Format: `pod-security.kubernetes.io/<mode>=<standard>`, and optionally `pod-secu
 | `seccompProfile` (RuntimeDefault or Localhost) required | No | **Yes** |
 | Capabilities must `drop: ["ALL"]` | No | **Yes** |
 
-## 3. Prerequisites
 
-- A running AKS cluster (Provisioning state **Succeeded**, nodes Ready).
-- Portal access to cluster **Run command** and **Kubernetes resources > Workloads > Create > Apply a YAML**.
-- Permission to create namespaces and apply YAML (cluster admin).
-
-> Portal menu names change over time. If a blade is not where described, use the portal search bar.
 
 ### 3.1 Confirm the cluster
 
@@ -85,9 +79,7 @@ kubectl get namespaces --show-labels
 kubectl describe namespace kube-system
 ```
 
-2. Note which namespaces already have `pod-security.kubernetes.io/...` labels. Most user namespaces have none, meaning no PSA restrictions apply. **Record:** ______
-
-> Never apply `restricted` or `baseline` enforcement to `kube-system`; system components need elevated settings.
+ Never apply `restricted` or `baseline` enforcement to `kube-system`; system components need elevated settings.
 
 ---
 
@@ -119,7 +111,7 @@ spec:
       privileged: true
 ```
 
-Expected: rejected with `violates PodSecurity "baseline:latest": privileged`. **Record the error:** ______
+Expected: rejected with `violates PodSecurity "baseline:latest": privileged`. 
 
 ### 5.3 Try a host-access pod (should fail)
 
@@ -190,7 +182,6 @@ Expected: rejected. The error lists several controls, for example:
 - `runAsNonRoot != true`
 - `seccompProfile`
 
-**Record the full list of violations:** ______
 
 ### 6.3 Fix it step by step
 
@@ -234,8 +225,6 @@ The standard `nginx` image starts as root and binds to port 80, which conflicts 
 ```
 kubectl describe pod <pod-name> -n pss-restricted
 ```
-
-**Record the event message:** ______
 
 ---
 
@@ -301,5 +290,3 @@ kubectl rollout restart deploy/legacy-app -n pss-existing
 ```
 kubectl label namespace pss-existing pod-security.kubernetes.io/enforce=restricted --overwrite
 ```
-
-> **Key point:** Enforce applies to **new pod creation**. Pods that were already running are not killed when you add the label, but they will fail to recreate after a restart or reschedule if they are non-compliant. This is how an enforcement change can cause an incident later.
