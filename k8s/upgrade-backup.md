@@ -43,11 +43,43 @@ ls -ld $BK
 
 The folder must be listed. If not, stop and fix this first.
 
-### 2.2 etcd snapshot
+### 2.2 Install etcdctl and etcdutl (Ubuntu)
+
+The snapshot needs the `etcdctl` and `etcdutl` tools, which kubeadm does not install. Skip this step if `which etcdctl etcdutl` already prints both paths.
+
+First find the etcd version your cluster runs:
+
+```bash
+kubectl -n kube-system get pod -l component=etcd -o jsonpath='{.items[0].spec.containers[0].image}'; echo
+```
+
+It prints something like `registry.k8s.io/etcd:3.5.16-0`. Set `ETCD_VER` to that version with a leading `v` and without the `-0` (here `v3.5.16`):
+
+```bash
+export ETCD_VER=v3.5.16
+```
+
+Download the release and copy the two tools to `/usr/local/bin` (this is for amd64; use `arm64` in the file name on ARM):
+
+```bash
+cd /tmp
+curl -LO https://github.com/etcd-io/etcd/releases/download/${ETCD_VER}/etcd-${ETCD_VER}-linux-amd64.tar.gz
+tar xzf etcd-${ETCD_VER}-linux-amd64.tar.gz
+sudo mv etcd-${ETCD_VER}-linux-amd64/etcdctl etcd-${ETCD_VER}-linux-amd64/etcdutl /usr/local/bin/
+```
+
+Verify:
+
+```bash
+etcdctl version
+etcdutl version
+```
+
+Both should print the version you set.
+
+### 2.3 etcd snapshot
 
 Save a snapshot of etcd, the database that stores the whole cluster state.
-
-You need `etcdctl` and `etcdutl` in `/usr/local/bin`. Check with `which etcdctl etcdutl`.
 
 ```bash
 sudo ETCDCTL_API=3 etcdctl \
@@ -67,7 +99,7 @@ sudo etcdutl snapshot status $BK/etcd-snapshot.db -w table
 
 You should see a file of a few MB and a table with hash, revision, total keys and size.
 
-### 2.3 Cluster files
+### 2.4 Cluster files
 
 Copy the config and certificate files so you can repair the node if needed.
 
@@ -76,7 +108,7 @@ sudo tar czf $BK/etc-kubernetes.tgz /etc/kubernetes
 sudo tar czf $BK/var-lib-kubelet.tgz /var/lib/kubelet/config.yaml /var/lib/kubelet/kubeadm-flags.env
 ```
 
-### 2.4 kubeadm and kubelet configuration
+### 2.5 kubeadm and kubelet configuration
 
 Save the settings kubeadm and kubelet keep inside the cluster.
 
@@ -86,7 +118,7 @@ kubectl -n kube-system get cm kubelet-config -o yaml > $BK/kubelet-config.yaml
 kubectl -n kube-system get cm kube-proxy -o yaml > $BK/kube-proxy-cm.yaml
 ```
 
-### 2.5 Workload definitions (contains Secrets, protect the files)
+### 2.6 Workload definitions (contains Secrets, protect the files)
 
 Export your apps and their settings as YAML files.
 
@@ -98,7 +130,7 @@ done
 kubectl get clusterrole,clusterrolebinding,crd,sc -o yaml > $BK/cluster-scoped.yaml
 ```
 
-### 2.6 Record versions
+### 2.7 Record versions
 
 Note the installed versions for reference.
 
@@ -107,7 +139,7 @@ Note the installed versions for reference.
 dpkg -l | grep -E 'kubeadm|kubelet|kubectl|containerd' >> $BK/versions.txt
 ```
 
-### 2.7 Copy the backup off the node
+### 2.8 Copy the backup off the node
 
 Keep a copy off this node so a node failure cannot lose your backup.
 
