@@ -1,6 +1,6 @@
-# Lab 0: Install Puppet Server on vm-1
+# Lab 0: Install Puppet Server on vm-1 (Rocky Linux)
 
-Based on the Puppet Core documentation (help.puppet.com/core, Puppet Core 9.x).
+Based on the Puppet Core documentation (help.puppet.com/core, Puppet Core 9.x). This version is for **Rocky Linux 9** (RHEL family, uses `dnf` and `el-9` packages; this replaces the Ubuntu `apt` steps).
 
 | VM | Role |
 |---|---|
@@ -58,7 +58,7 @@ Both roles allow up to 25 nodes. Production use with more nodes needs a paid lic
 2. If you have no active key, or it expires soon, click **Create a new key** and follow the prompts.
 3. Copy the key and save it somewhere private, such as a password manager.
 
-You use this key as the password in Step 7 (and in Lab 1). The user name is always the literal word `forge-key`.
+You use this key as the password in Step 6 (and in Lab 1). The user name is always the literal word `forge-key`.
 
 Treat the key like a password: do not paste it into chat, scripts or Git. If it leaks, delete it on the same **API Keys** page and create a new one.
 
@@ -72,129 +72,120 @@ free -h
 
 Puppet Server is a Java service and needs about 1 GB free. If these VMs also run Kubernetes, memory is tight.
 
-## Step 3: Find your Ubuntu name
+## Step 3: Check your Rocky version
 
 ```bash
 cat /etc/os-release
 ```
 
-Look at `VERSION_CODENAME`, for example `noble` (24.04) or `jammy` (22.04).
+Look at `VERSION_ID`. This lab assumes `9.x`, which uses the `el-9` package. (For Rocky 8, replace `el-9` with `el-8` everywhere below.)
 
-## Step 4: Find the release package
+## Step 4: Download the release package
 
+The release package for Rocky/RHEL 9 is `puppet9-release-el-9.noarch.rpm`:
 
-
-Find the file for your Ubuntu name, for example `puppet9-release-noble.deb`. Write down the exact file name.
-
-## Step 5: Download it
-
-Use your exact file name:
 ```bash
 wget --content-disposition https://yum-puppetcore.puppet.com/public/puppet9-release-el-9.noarch.rpm
+ls -l puppet9-release-el-9.noarch.rpm
 ```
-## Step 4 (vm2): Install the release package
+
+## Step 5: Install the release package
 
 ```bash
 sudo rpm -ivh puppet9-release-el-9.noarch.rpm
 ```
 
-## Step 7: Add your API key
+This adds a Puppet repository file under `/etc/yum.repos.d/`. Find its exact name:
 
 ```bash
-ls /etc/apt/auth.conf.d/
+ls /etc/yum.repos.d/ | grep -i puppet
 ```
 
-Open the Puppet file (normally `apt-puppetcore-puppet.conf`). If the folder has no such file, create it with the same command:
+## Step 6: Add your API key
+
+Open the Puppet repo file you found in Step 5 (use its exact name in place of `puppet*.repo` below):
 
 ```bash
-sudo vi /etc/apt/auth.conf.d/apt-puppetcore-puppet.conf
+sudo vi /etc/yum.repos.d/puppet*.repo
 ```
 
-The file must contain these three lines. `forge-key` is the literal word, not a placeholder. Replace only `YOUR_API_KEY`:
+Inside the Puppet Core section (the one with the `baseurl` pointing at `yum-puppetcore.puppet.com`), add these two lines. `forge-key` is the literal word, not a placeholder. Replace only `YOUR_API_KEY`:
 
 ```text
-machine apt-puppetcore.puppet.com
-login forge-key
-password YOUR_API_KEY
+username=forge-key
+password=YOUR_API_KEY
 ```
 
-Protect the file:
+If the file already has `username=` and `password=` lines, edit those instead of adding duplicates. Leave the other lines (`name`, `baseurl`, `enabled`, `gpgcheck`, `gpgkey`) as they are.
+
+Protect the file, because it now contains your key:
 
 ```bash
-sudo chmod 600 /etc/apt/auth.conf.d/apt-puppetcore-puppet.conf
+sudo chmod 600 /etc/yum.repos.d/puppet*.repo
 ```
 
-## Step 8: Update the package list
+Press `Esc`, type `:wq`, press `Enter` when you finish editing.
+
+## Step 7: Refresh the package metadata
 
 ```bash
-sudo apt-get update
+sudo dnf clean all
+sudo dnf makecache
 ```
 
-Expected: `apt-puppetcore.puppet.com` appears without an error.
+Expected: the Puppet repository appears and downloads metadata without an error. If dnf asks you to import a GPG key, check that the key comes from Puppet and answer `y`.
 
-### If you see `401 Unauthorized`
+### If you see `401 Unauthorized` (or `403 Forbidden`)
 
-The repository rejected the login. First test the key on its own, so you know whether the key or the apt file is wrong:
+The repository rejected the login. First test the key on its own, so you know whether the key or the repo file is wrong. Get the repository URL:
 
 ```bash
-curl -I -u forge-key https://apt-puppetcore.puppet.com/dists/noble/InRelease
+grep -i baseurl /etc/yum.repos.d/puppet*.repo
 ```
 
-curl asks for the password: paste your API key (nothing is shown while you paste) and press `Enter`. Use your Ubuntu name instead of `noble` if it differs. Read the first line of the answer:
+Then test it (replace `BASEURL` with the value after `baseurl=`; if it contains `$basearch`, use `x86_64`, or `aarch64` on ARM):
+
+```bash
+curl -I -u forge-key BASEURL/repodata/repomd.xml
+```
+
+curl asks for the password: paste your API key (nothing is shown while you paste) and press `Enter`. Read the first line of the answer:
 
 | Answer | Meaning | What to do |
 |---|---|---|
-| `HTTP/2 200` | The key is valid | The apt auth file is wrong: do checks 1 to 3 below |
-| `HTTP/2 401` | The key is rejected | Do check 4 below and create a new key |
+| `HTTP/2 200` | The key is valid | The repo file is wrong: do checks 1 and 2 below |
+| `HTTP/2 401` | The key is rejected | Do check 3 below and create a new key |
 | `HTTP/2 403` | Key valid but not allowed | EULA not accepted, or the role does not cover this package: redo Step 1.3 |
 
 Then check these in order:
 
-1. Show the auth file (it contains your key, so do this in a private terminal):
+1. Show the repo file (it contains your key, so do this in a private terminal):
 
    ```bash
-   sudo cat -A /etc/apt/auth.conf.d/apt-puppetcore-puppet.conf
+   sudo cat -A /etc/yum.repos.d/puppet*.repo
    ```
 
-   `cat -A` shows hidden characters: each line must end with a single `$`. A `^M` before the `$` means a Windows line break was pasted in, so retype the file (check 3). It must have exactly these three lines: no `#` at the start, no quotes, no `<` or `>`, no extra spaces, and `forge-key` as the literal user name.
+   `cat -A` shows hidden characters: each line must end with a single `$`. A `^M` before the `$` means a Windows line break was pasted in, so retype the lines. Make sure `username=forge-key` and `password=YOUR_API_KEY` have no `#` at the start, no quotes, no `<` or `>`, and no extra spaces, and that they sit inside the correct section (above any next `[section]` header).
 
-   ```text
-   machine apt-puppetcore.puppet.com
-   login forge-key
-   password YOUR_API_KEY
-   ```
-
-2. Check the file name ends in `.conf`:
+2. Fix the file if needed, then try again:
 
    ```bash
-   ls -l /etc/apt/auth.conf.d/
+   sudo vi /etc/yum.repos.d/puppet*.repo
+   sudo dnf clean all
+   sudo dnf makecache
    ```
 
-3. Fix the file if needed. Open it, press `Esc`, type `gg` then `dG` to delete everything, press `i`, and type the three lines again:
+3. Check your Forge account in the browser: multifactor authentication is on, the Puppet Core EULA is accepted (Step 1.3), and the key on the **API Keys** page is active and not expired. If in doubt, create a new key and paste it again, copying the whole key with no spaces.
 
-   ```bash
-   sudo vi /etc/apt/auth.conf.d/apt-puppetcore-puppet.conf
-   ```
-
-   Press `Esc`, type `:wq`, press `Enter`.
-
-4. Check your Forge account in the browser: multifactor authentication is on, the Puppet Core EULA is accepted (Step 1.3), and the key on the **API Keys** page is active and not expired. If in doubt, create a new key and paste it again, copying the whole key with no spaces.
-
-5. Try again:
-
-   ```bash
-   sudo apt-get update
-   ```
-
-## Step 9: Install Puppet Server
+## Step 8: Install Puppet Server
 
 ```bash
-sudo apt-get install -y puppetserver
+sudo dnf install -y puppetserver
 ```
 
 Do not start it yet.
 
-## Step 10: Make the commands easy to run
+## Step 9: Make the commands easy to run
 
 ```bash
 sudo ln -s /opt/puppetlabs/bin/puppet /usr/local/bin/puppet
@@ -207,15 +198,25 @@ puppet --version
 puppetserver -v
 ```
 
-## Step 11: Lower the Java memory for the lab
+If `sudo puppet` says command not found later, run `sudo /opt/puppetlabs/bin/puppet ...` instead, or add `/opt/puppetlabs/bin` to sudo's `secure_path`. (On Rocky, sudo's `secure_path` does not include `/usr/local/bin`.) The simplest fix is to link into `/usr/bin` instead:
 
 ```bash
-sudo vi /etc/default/puppetserver
+sudo ln -sf /opt/puppetlabs/bin/puppet /usr/bin/puppet
+sudo ln -sf /opt/puppetlabs/bin/facter /usr/bin/facter
+sudo ln -sf /opt/puppetlabs/bin/puppetserver /usr/bin/puppetserver
+```
+
+## Step 10: Lower the Java memory for the lab
+
+The Rocky settings file is in `/etc/sysconfig`:
+
+```bash
+sudo vi /etc/sysconfig/puppetserver
 ```
 
 Type `/JAVA_ARGS` and press `Enter` to jump to the line. Move the cursor onto the `2g` after `-Xms`, press `x` to delete characters and `i` to type, so that `-Xms2g -Xmx2g` becomes `-Xms512m -Xmx1g`. Leave the rest of the line as it is. Press `Esc`, type `:wq`, press `Enter`.
 
-## Step 12: Make the name vm-1 resolvable
+## Step 11: Make the name vm-1 resolvable
 
 ```bash
 hostname -I
@@ -235,7 +236,7 @@ Press `G` then `o` to open a new line at the end, and type this line, using your
 
 Press `Esc`, type `:wq`, press `Enter`.
 
-## Step 13: Set the server name (before the first start)
+## Step 12: Set the server name (before the first start)
 
 ```bash
 sudo puppet config set certname vm-1 --section main
@@ -244,6 +245,18 @@ cat /etc/puppetlabs/puppet/puppet.conf
 ```
 
 Do this before the first start, because the certificate authority is created from this name.
+
+## Step 13: Open port 8140 in the firewall
+
+Rocky runs `firewalld` by default. Agents (like vm2) cannot reach the server unless port 8140 is open:
+
+```bash
+sudo firewall-cmd --permanent --add-port=8140/tcp
+sudo firewall-cmd --reload
+sudo firewall-cmd --list-ports
+```
+
+Expected: `8140/tcp` is in the list. (If `firewalld` is not running, skip this step.)
 
 ## Step 14: Start the server
 
@@ -256,28 +269,3 @@ Wait one to two minutes, then:
 ```bash
 sudo systemctl status puppetserver --no-pager
 ```
-
-## Step 15: Verify
-
-```bash
-curl -sk https://localhost:8140/status/v1/simple
-sudo puppetserver ca list --all
-```
-
-Expected: `running`, and a signed certificate for `vm-1`.
-
-If it does not start:
-
-```bash
-sudo tail -50 /var/log/puppetlabs/puppetserver/puppetserver.log
-```
-
-Common causes: too little memory (lower `-Xmx` in Step 11) or port 8140 in use.
-
-## Done when
-
-- [ ] `puppetserver -v` prints a version
-- [ ] The status address answers `running`
-- [ ] `vm-1` is a signed certificate
-
-Next: `lab1.md`.
