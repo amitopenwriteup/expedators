@@ -1,16 +1,14 @@
-# Lab 1: Install the agent on vm2 and sign its certificate
+# Lab 1 (Rocky Linux): Install the agent on vm2 and sign its certificate
 
 Needs: Lab 0 complete. Each step says which VM to use.
 
 ## Step 1 (vm2): Make vm-1 resolvable
 
-On `vm-1` you noted its IP. On `vm2`:
-
 ```bash
 sudo vi /etc/hosts
 ```
 
-Press `G` then `o` to open a new line at the end, and type this line, using the IP of vm-1:
+Press `G` then `o`, type this line (use the IP of vm-1):
 
 ```text
 10.0.0.2 vm-1 puppet
@@ -25,14 +23,24 @@ ping -c 2 vm-1
 nc -zv vm-1 8140
 ```
 
-Expected: the port test succeeds. If it fails, open TCP 8140 in your VPC or host firewall. If `nc` is missing: `sudo apt-get install -y netcat-openbsd`.
+If `nc` is missing:
+
+```bash
+sudo dnf install -y nmap-ncat
+```
+
+If the port test fails, open TCP 8140 on **vm-1**:
+
+```bash
+sudo firewall-cmd --permanent --add-port=8140/tcp
+sudo firewall-cmd --reload
+```
 
 ## Step 3 (vm2): Download the release package
 
-Use the same file name you used on vm-1:
-
 ```bash
 wget --content-disposition https://yum-puppetcore.puppet.com/public/puppet9-release-el-9.noarch.rpm
+```
 
 ## Step 4 (vm2): Install the release package
 
@@ -42,44 +50,48 @@ sudo rpm -ivh puppet9-release-el-9.noarch.rpm
 
 ## Step 5 (vm2): Add your API key
 
-Use the same key you created in Lab 0, Step 1 (Forge profile, **API Keys**).
+Use the same key from Lab 0, Step 1.
 
 ```bash
-sudo vi /etc/apt/auth.conf.d/apt-puppetcore-puppet.conf
+sudo vi /etc/yum.repos.d/puppetcore-puppet9.repo
 ```
 
-Contents (replace only `YOUR_API_KEY`):
+Find the `[puppetcore9]` section and set these two lines (replace only `YOUR_API_KEY`):
 
 ```text
-machine apt-puppetcore.puppet.com
-login forge-key
-password YOUR_API_KEY
+username=forge-key
+password=YOUR_API_KEY
 ```
 
+Then:
+
 ```bash
-sudo chmod 600 /etc/apt/auth.conf.d/apt-puppetcore-puppet.conf
-sudo apt-get update
+sudo chmod 600 /etc/yum.repos.d/puppetcore-puppet9.repo
+sudo dnf clean all
+sudo dnf makecache
 ```
+
+If the repo file name differs, check with `ls /etc/yum.repos.d/`.
 
 ## Step 6 (vm2): Install the agent
 
 ```bash
-sudo apt-get install -y puppet-agent
+sudo dnf install -y puppet-agent
 sudo ln -s /opt/puppetlabs/bin/puppet /usr/local/bin/puppet
 sudo ln -s /opt/puppetlabs/bin/facter /usr/local/bin/facter
 puppet --version
 ```
 
-Check that you are using the new agent, not an older Puppet package:
+Check you are using the new agent:
 
 ```bash
 which -a puppet
 ```
 
-Expected: `/opt/puppetlabs/bin/puppet` and version 9.x. If an older version shows, remove it:
+Expected: `/opt/puppetlabs/bin/puppet` and version 9.x. If an older version shows:
 
 ```bash
-sudo apt-get remove -y puppet
+sudo dnf remove -y puppet
 ```
 
 ## Step 7 (vm2): Point the agent at the server
@@ -98,11 +110,11 @@ sudo puppet agent -t
 
 Expected: the agent says its certificate is not signed yet. This is normal.
 
-Note the certificate fingerprint printed here. Leave this terminal open and go to `vm-1` for Step 9.
+Note the certificate fingerprint printed here. Leave this terminal open and go to `vm-1`.
 
 ## Step 9 (vm-1): Sign the certificate
 
-Run these on **vm-1**, not vm2:
+Run on **vm-1**, not vm2:
 
 ```bash
 sudo puppetserver ca list
@@ -110,11 +122,9 @@ sudo puppetserver ca sign --certname vm2
 sudo puppetserver ca list --all
 ```
 
-- `sudo puppetserver ca list` shows `vm2` under "Requested Certificates". Check that its fingerprint matches the one printed on vm2 in Step 8.
-- `sudo puppetserver ca sign --certname vm2` signs the request.
-- `sudo puppetserver ca list --all` shows `vm2` as signed.
+Check that the fingerprint from `ca list` matches the one on vm2.
 
-If `vm2` is not listed, the request is not reaching vm-1. On vm2, run:
+If `vm2` is not listed, on vm2 run:
 
 ```bash
 sudo puppet agent --configprint server
@@ -128,7 +138,7 @@ nc -zv vm-1 8140
 sudo puppet agent -t
 ```
 
-Expected: `Caching catalog for vm2` and `Applied catalog`. There is no code yet, so nothing changes.
+Expected: `Caching catalog for vm2` and `Applied catalog`.
 
 ## Step 11 (vm2): Look at facts
 
@@ -137,8 +147,6 @@ facter os
 facter networking.hostname
 facter memory.system.total
 ```
-
-Facts are the data the server uses to build the catalog for this node.
 
 ## Done when
 
