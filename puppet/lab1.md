@@ -32,13 +32,12 @@ Expected: the port test succeeds. If it fails, open TCP 8140 in your VPC or host
 Use the same file name you used on vm-1:
 
 ```bash
-wget --content-disposition https://apt-puppetcore.puppet.com/public/puppet9-release-noble.deb
-```
+wget --content-disposition https://yum-puppetcore.puppet.com/public/puppet9-release-el-9.noarch.rpm
 
 ## Step 4 (vm2): Install the release package
 
 ```bash
-sudo dpkg -i puppet9-release-noble.deb
+sudo dpkg -i puppet9-release-el-9.noarch.rpm
 ```
 
 ## Step 5 (vm2): Add your API key
