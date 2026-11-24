@@ -37,7 +37,7 @@ wget --content-disposition https://yum-puppetcore.puppet.com/public/puppet9-rele
 ## Step 4 (vm2): Install the release package
 
 ```bash
-sudo dpkg -i puppet9-release-el-9.noarch.rpm
+sudo rpm -ivh puppet9-release-el-9.noarch.rpm
 ```
 
 ## Step 5 (vm2): Add your API key
