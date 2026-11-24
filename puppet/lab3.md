@@ -18,7 +18,7 @@ On these VMs it prints `/etc/puppet/code/environments`. Create the `production` 
 
 ```bash
 sudo mkdir -p /etc/puppet/code/environments/production/{manifests,modules}
-cd /etc/puppet/code/environments/production
+cd /etc/puppetlabs/code/environments/production
 ls
 ```
 
@@ -50,7 +50,7 @@ class lab::base {
     ensure => installed,
   }
 
-  service { 'cron':
+  service { 'crond':
     ensure => running,
     enable => true,
   }
