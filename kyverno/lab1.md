@@ -1,7 +1,6 @@
 # Lab 1: Validate Resources (require a label)
 
 Goal: block Pods that do not have a `team` label, then see the policy also cover Deployments through auto-generation.
-Needs: Lab 0 complete (Kyverno 1.17+).
 
 ## 1.1 Create the lab namespace
 
