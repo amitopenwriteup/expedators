@@ -82,11 +82,7 @@ Look at `VERSION_CODENAME`, for example `noble` (24.04) or `jammy` (22.04).
 
 ## Step 4: Find the release package
 
-Open this address in a web browser:
 
-```text
-https://apt-puppetcore.puppet.com/public
-```
 
 Find the file for your Ubuntu name, for example `puppet9-release-noble.deb`. Write down the exact file name.
 
@@ -95,11 +91,12 @@ Find the file for your Ubuntu name, for example `puppet9-release-noble.deb`. Wri
 Use your exact file name:
 ```bash
 wget --content-disposition https://yum-puppetcore.puppet.com/public/puppet9-release-el-9.noarch.rpm
-
+```
 ## Step 4 (vm2): Install the release package
 
 ```bash
-sudo dpkg -i puppet9-release-el-9.noarch.rpm
+sudo rpm -ivh puppet9-release-el-9.noarch.rpm
+```
 
 ## Step 7: Add your API key
 
