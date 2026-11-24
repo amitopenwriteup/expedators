@@ -76,30 +76,5 @@ kubectl get mutatingwebhookconfigurations | grep -i kyverno
 
 These are the webhooks the API server calls. The Webhook Controller edits them as policies are added.
 
-## 0.7 No policies yet
 
-```bash
-kubectl get validatingpolicy,mutatingpolicy,generatingpolicy,deletingpolicy
-```
 
-Expected: `No resources found`.
-
-## 0.8 Optional: high availability install (production style)
-
-Not needed for the labs on two nodes. For reference:
-
-```bash
-helm install kyverno kyverno/kyverno -n kyverno --create-namespace \
-  --set admissionController.replicas=3 \
-  --set backgroundController.replicas=2 \
-  --set cleanupController.replicas=2 \
-  --set reportsController.replicas=2
-```
-
-## Done when
-
-- [ ] Four Kyverno pods `Running`
-- [ ] `policies.kyverno.io` CRDs exist with `v1`
-- [ ] Kyverno webhook configurations exist
-
-Next: `lab1.md`. To remove Kyverno at the very end, see `lab8.md`.
