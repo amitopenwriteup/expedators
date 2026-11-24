@@ -3,7 +3,7 @@
 Goal: install Kyverno with Helm on your kubeadm cluster (`vm-1` control plane, `vm2` worker) and confirm it is healthy.
 Time: 10 minutes. Run everything on `vm-1`.
 
-> Use a lab cluster only. Kyverno is an admission webhook, so a broken policy can block requests.
+
 
 ## 0.1 Pre-checks
 
