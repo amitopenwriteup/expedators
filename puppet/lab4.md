@@ -1,6 +1,6 @@
-# Lab 4: Forge module (Apache web server on vm2)
+# Lab 4: Forge module (Apache on node1, Rocky Linux)
 
-Reuse a community module from the Puppet Forge. Needs Lab 3.
+Needs Lab 3.
 
 ## Step 1 (vm-1): Install the module
 
@@ -8,13 +8,7 @@ Reuse a community module from the Puppet Forge. Needs Lab 3.
 sudo puppet module install puppetlabs-apache --environment production
 ```
 
-The Forge is public, so no API key is needed. Dependencies such as `puppetlabs-stdlib` come with it.
-
-If it refuses because of a Puppet version requirement, retry for this lab with:
-
-```bash
-sudo puppet module install puppetlabs-apache --environment production --ignore-requirements
-```
+If it fails on a version requirement, add `--ignore-requirements`.
 
 ## Step 2 (vm-1): Check the module
 
@@ -36,7 +30,7 @@ node default {
   include lab::base
 }
 
-node 'vm2' {
+node 'node1' {
   include lab::base
 
   class { 'apache':
@@ -50,28 +44,26 @@ node 'vm2' {
 }
 ```
 
-`node 'vm2'` is more specific than `node default`, so vm2 uses it. That is why `include lab::base` appears again.
-
 ```bash
 sudo puppet parser validate manifests/site.pp
 ```
 
-## Step 4 (vm2): Run the agent
+## Step 4 (node1): Run the agent
 
 ```bash
 sudo puppet agent -t
 ```
 
-## Step 5 (vm2): Verify
+## Step 5 (node1): Verify
 
 ```bash
-systemctl is-active apache2
+systemctl is-active httpd
 curl http://localhost/
 ```
 
 Expected: `active` and `Hello from Puppet`.
 
-## Step 6 (vm2): Run again
+## Step 6 (node1): Run again
 
 ```bash
 sudo puppet agent -t
@@ -79,31 +71,26 @@ sudo puppet agent -t
 
 Expected: no changes.
 
-## Step 7 (vm2): Break it and watch Puppet repair it
+## Step 7 (node1): Break it and watch Puppet repair it
 
 ```bash
-sudo systemctl stop apache2
-sudo vi /var/www/html/index.html
-```
-
-Press `i`, change the text to `defaced`. Press `Esc`, type `:wq`, press `Enter`. Then:
-
-```bash
+sudo systemctl stop httpd
+echo defaced | sudo tee /var/www/html/index.html
 sudo puppet agent -t
 curl http://localhost/
 ```
 
-Expected: Apache is running again and the page is restored.
+Expected: httpd is running and the page says `Hello from Puppet`.
 
 ## Step 8: Cleanup (optional)
 
-On vm-1 remove the `node 'vm2'` block from `site.pp`. On vm2:
+On vm-1, remove the `node 'node1'` block from `site.pp`. On node1:
 
 ```bash
 sudo puppet agent -t
-sudo apt-get remove -y apache2
+sudo systemctl disable --now httpd
+sudo dnf remove -y httpd
+sudo rm -rf /etc/httpd
 ```
-
-Puppet does not undo changes by itself when code is removed.
 
 Next: `lab5.md`.
