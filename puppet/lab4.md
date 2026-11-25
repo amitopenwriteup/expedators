@@ -93,4 +93,3 @@ sudo dnf remove -y httpd
 sudo rm -rf /etc/httpd
 ```
 
-Next: `lab5.md`.
