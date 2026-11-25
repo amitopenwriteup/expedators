@@ -1,0 +1,305 @@
+
+====================================================
+BASIC LEVEL (1–15)
+====================================================
+
+1. What is Ansible primarily used for?
+A. Database Management
+B. Configuration Management and Automation
+C. Web Development
+D. Graphic Design
+
+Answer: B
+
+----------------------------------------------------
+
+2. Which language is Ansible written in?
+A. Java
+B. Python
+C. C#
+D. Go
+
+Answer: B
+
+----------------------------------------------------
+
+3. Which file format is used for writing Ansible Playbooks?
+A. XML
+B. JSON
+C. YAML
+D. CSV
+
+Answer: C
+
+----------------------------------------------------
+
+4. Which command is used to check the Ansible version?
+A. ansible --version
+B. ansible version
+C. ansible -v
+D. ansible check
+
+Answer: A
+
+----------------------------------------------------
+
+5. What is the default inventory file location in Ansible?
+A. /etc/ansible/hosts
+B. /etc/hosts
+C. /ansible/inventory
+D. /usr/ansible/hosts
+
+Answer: A
+
+----------------------------------------------------
+
+6. Which protocol does Ansible use by default to connect to Linux hosts?
+A. FTP
+B. SSH
+C. RDP
+D. HTTP
+
+Answer: B
+
+----------------------------------------------------
+
+7. Which command tests connectivity to all managed hosts?
+A. ansible all -m ping
+B. ansible ping
+C. ansible test
+D. ansible connect
+
+Answer: A
+
+----------------------------------------------------
+
+8. What is an Inventory in Ansible?
+A. Collection of Playbooks
+B. List of Managed Hosts
+C. Configuration File
+D. Collection of Modules
+
+Answer: B
+
+----------------------------------------------------
+
+9. Which keyword specifies the target hosts in a playbook?
+A. target
+B. server
+C. hosts
+D. machines
+
+Answer: C
+
+----------------------------------------------------
+
+10. Which module is commonly used to install packages on Debian-based systems?
+A. yum
+B. apt
+C. dnf
+D. service
+
+Answer: B
+
+----------------------------------------------------
+
+11. Which module is commonly used to install packages on RHEL 8+ systems?
+A. apt
+B. rpm
+C. dnf
+D. service
+
+Answer: C
+
+----------------------------------------------------
+
+12. Which command runs an Ansible playbook?
+A. ansible-run
+B. ansible-playbook
+C. ansible execute
+D. ansible start
+
+Answer: B
+
+----------------------------------------------------
+
+13. Which keyword is used to define a task name?
+A. task
+B. title
+C. name
+D. description
+
+Answer: C
+
+----------------------------------------------------
+
+14. What is an Ansible Module?
+A. Programming Language
+B. Unit of Work Executed on Managed Nodes
+C. Inventory File
+D. YAML Parser
+
+Answer: B
+
+----------------------------------------------------
+
+15. What is an Ansible Collection?
+A. A group of managed hosts
+B. A package containing modules, plugins, roles, and documentation
+C. A list of playbooks
+D. A configuration file
+
+Answer: B
+
+Post test
+====================================================
+INTERMEDIATE LEVEL (16–30)
+====================================================
+
+16. Which keyword is used to execute a task only when a condition is true?
+A. if
+B. when
+C. condition
+D. check
+
+Answer: B
+
+----------------------------------------------------
+
+17. Which module copies files from the control node to managed nodes?
+A. copy
+B. synchronize
+C. move
+D. template
+
+Answer: A
+
+----------------------------------------------------
+
+18. What is the purpose of Handlers in Ansible?
+A. Store Variables
+B. Execute Tasks Only When Notified
+C. Manage Inventory
+D. Install Packages
+
+Answer: B
+
+----------------------------------------------------
+
+19. Which keyword is used to notify a handler?
+A. handler
+B. call
+C. notify
+D. trigger
+
+Answer: C
+
+----------------------------------------------------
+
+20. Which variable has the highest precedence?
+A. Role Defaults
+B. Inventory Variables
+C. Extra Variables (-e)
+D. Group Variables
+
+Answer: C
+
+----------------------------------------------------
+
+21. Which module is used to manage system services?
+A. system
+B. daemon
+C. process
+D. service
+
+Answer: D
+
+----------------------------------------------------
+
+22. Which keyword was traditionally used for looping over items?
+A. repeat
+B. with_items
+C. iterate
+D. cycle
+
+Answer: B
+
+----------------------------------------------------
+
+23. Which keyword is the modern replacement for most uses of with_items?
+A. foreach
+B. loop
+C. repeat
+D. iterate
+
+Answer: B
+
+----------------------------------------------------
+
+24. What is the purpose of Roles in Ansible?
+A. Group Playbooks
+B. Organize automation into reusable components
+C. Manage SSH
+D. Store Logs
+
+Answer: B
+
+----------------------------------------------------
+
+25. Which directory inside an Ansible role contains task files?
+A. handlers/
+B. vars/
+C. tasks/
+D. defaults/
+
+Answer: C
+
+----------------------------------------------------
+
+26. Which module gathers facts about managed hosts?
+A. facts
+B. setup
+C. gather
+D. info
+
+Answer: B
+
+----------------------------------------------------
+
+27. What is idempotency in Ansible?
+A. Running tasks in parallel
+B. Tasks produce the same result even when run multiple times
+C. Running tasks faster
+D. Managing inventories
+
+Answer: B
+
+----------------------------------------------------
+
+28. Which command creates a new encrypted Ansible Vault file?
+A. ansible-vault create secrets.yml
+B. ansible encrypt secrets.yml
+C. ansible-vault encrypt secrets.yml
+D. ansible create secrets.yml
+
+Answer: A
+
+----------------------------------------------------
+
+29. Which keyword is used to define variables inside a playbook?
+A. values
+B. vars
+C. variables
+D. env
+
+Answer: B
+
+----------------------------------------------------
+
+30. Which file is typically used to define the main tasks for an Ansible role?
+A. tasks/main.yml
+B. roles.yml
+C. playbook.yml
+D. defaults/main.yml
+
+Answer: A
